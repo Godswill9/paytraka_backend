@@ -1,14 +1,33 @@
-const router = require('express').Router();
-const ctrl = require('../controllers/firs.controller');
-const { authenticate } = require('../middlewares/auth.middleware');
+const express = require("express");
+const router = express.Router();
+
+const {
+  submitToFirs,
+  updateInvoicePaymentStatus,
+  getInvoiceQrCode,
+  getBusinessHealthCheck,
+  getSubmissions,
+  getSubmission,
+} = require("../controllers/firs.controller");
+
+const { authenticate } = require("../middlewares/auth.middleware");
 
 router.use(authenticate);
 
-router.post('/submit', ctrl.submitToFirs);
-router.post('/transmit', ctrl.transmitChunk);
-router.post('/validate', ctrl.validateInvoice);
-router.get('/submissions', ctrl.getSubmissions);
-router.get('/submissions/:id', ctrl.getSubmission);
-router.get('/status/:irn', ctrl.getIrnStatus);
+// Submit an invoice to FIRS
+router.post("/submit", submitToFirs);
+
+// Update an invoice's payment status on FIRS (PAID / UNPAID)
+router.post("/payment-status", updateInvoicePaymentStatus);
+
+// Get FIRS QR code for a submitted invoice
+router.get("/invoices/:invoiceId/qr", getInvoiceQrCode);
+
+// FIRS business health check
+router.get("/health", getBusinessHealthCheck);
+
+// Submission history
+router.get("/submissions", getSubmissions);
+router.get("/submissions/:id", getSubmission);
 
 module.exports = router;

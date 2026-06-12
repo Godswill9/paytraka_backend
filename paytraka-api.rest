@@ -1,0 +1,997 @@
+###########################################################
+# PayTraka API - REST Client Test Suite
+# For use with VS Code REST Client extension
+###########################################################
+
+@baseUrl = http://localhost:3000/api
+@contentType = application/json
+
+# ───────────────────────────────────────────────────────
+# VARIABLES (Update these with your test values)
+# ───────────────────────────────────────────────────────
+
+@accessToken = your_access_token_here
+@refreshToken = your_refresh_token_here
+@companyId = your_company_id
+@userId = your_user_id
+@customerId = your_customer_id
+@supplierId = your_supplier_id
+@productId = your_product_id
+@invoiceId = your_sales_invoice_id
+@purchaseInvoiceId = your_purchase_invoice_id
+@receiptId = your_receipt_id
+
+###########################################################
+# HEALTH CHECK
+###########################################################
+
+### 1. Health Check
+GET http://localhost:3000/health
+
+###########################################################
+# AUTHENTICATION ENDPOINTS
+###########################################################
+
+### 2. Register New User
+POST {{baseUrl}}/auth/register
+Content-Type: {{contentType}}
+
+{
+  "first_name": "John",
+  "last_name": "Doe",
+  "email": "john.doe@example.com",
+  "password": "SecurePassword123",
+  "phone": "+234801234567"
+}
+
+### 3. Verify OTP
+POST {{baseUrl}}/auth/verify-otp
+Content-Type: {{contentType}}
+
+{
+  "email": "john.doe@example.com",
+  "otp": "123456"
+}
+
+### 4. Resend OTP
+POST {{baseUrl}}/auth/resend-otp
+Content-Type: {{contentType}}
+
+{
+  "email": "john.doe@example.com"
+}
+
+### 5. Login
+POST {{baseUrl}}/auth/login
+Content-Type: {{contentType}}
+
+{
+  "email": "john.doe@example.com",
+  "password": "SecurePassword123"
+}
+
+### 6. Refresh Token
+POST {{baseUrl}}/auth/refresh-token
+Content-Type: {{contentType}}
+
+{
+  "refreshToken": "{{refreshToken}}"
+}
+
+### 7. Forgot Password
+POST {{baseUrl}}/auth/forgot-password
+Content-Type: {{contentType}}
+
+{
+  "email": "john.doe@example.com"
+}
+
+### 8. Verify Reset OTP
+POST {{baseUrl}}/auth/verify-reset-otp
+Content-Type: {{contentType}}
+
+{
+  "email": "john.doe@example.com",
+  "otp": "123456"
+}
+
+### 9. Reset Password
+POST {{baseUrl}}/auth/reset-password
+Content-Type: {{contentType}}
+
+{
+  "email": "john.doe@example.com",
+  "otp": "123456",
+  "new_password": "NewSecurePassword123"
+}
+
+### 10. Get Current User
+GET {{baseUrl}}/auth/me
+Authorization: Bearer {{accessToken}}
+
+### 11. Update Current User
+PATCH {{baseUrl}}/auth/me
+Authorization: Bearer {{accessToken}}
+Content-Type: {{contentType}}
+
+{
+  "first_name": "John",
+  "last_name": "Smith"
+}
+
+### 12. Change Password
+PATCH {{baseUrl}}/auth/change-password
+Authorization: Bearer {{accessToken}}
+Content-Type: {{contentType}}
+
+{
+  "current_password": "OldPassword123",
+  "new_password": "NewPassword123"
+}
+
+### 13. Logout
+POST {{baseUrl}}/auth/logout
+Authorization: Bearer {{accessToken}}
+
+###########################################################
+# COMPANY ENDPOINTS
+###########################################################
+
+### 14. Get Company Details
+GET {{baseUrl}}/companies/{{companyId}}
+Authorization: Bearer {{accessToken}}
+
+### 15. Update Company (General)
+PATCH {{baseUrl}}/companies/{{companyId}}
+Authorization: Bearer {{accessToken}}
+Content-Type: {{contentType}}
+
+{
+  "company_name": "My Company Ltd",
+  "trading_name": "MyCompany",
+  "business_email": "business@mycompany.com",
+  "business_phone": "+234802345678",
+  "address": "123 Business Street",
+  "city": "Lagos",
+  "state": "Lagos",
+  "country": "Nigeria",
+  "postal_code": "10001"
+}
+
+### 16. Submit KYC
+PATCH {{baseUrl}}/companies/{{companyId}}/kyc
+Authorization: Bearer {{accessToken}}
+Content-Type: {{contentType}}
+
+{
+  "company_name": "My Company Ltd",
+  "trading_name": "MyCompany",
+  "business_email": "business@mycompany.com",
+  "business_phone": "+234802345678",
+  "tax_identification_number": "12345678",
+  "rc_number": "RC123456",
+  "business_type": "Limited Liability Company",
+  "address": "123 Business Street",
+  "city": "Lagos",
+  "state": "Lagos",
+  "country": "Nigeria",
+  "lga": "Ikoyi",
+  "postal_code": "10001"
+}
+
+### 17. Get Company Mode
+GET {{baseUrl}}/companies/{{companyId}}/mode
+Authorization: Bearer {{accessToken}}
+
+### 18. Switch Company Mode (demo/live)
+PATCH {{baseUrl}}/companies/{{companyId}}/mode
+Authorization: Bearer {{accessToken}}
+Content-Type: {{contentType}}
+
+{
+  "mode": "live"
+}
+
+### 19. Get Company Settings
+GET {{baseUrl}}/companies/{{companyId}}/settings
+Authorization: Bearer {{accessToken}}
+
+### 20. Update Company Settings
+PATCH {{baseUrl}}/companies/{{companyId}}/settings
+Authorization: Bearer {{accessToken}}
+Content-Type: {{contentType}}
+
+{
+  "invoice_prefix": "INV",
+  "receipt_prefix": "RCP"
+}
+
+### 21. Update FIRS Settings
+PATCH {{baseUrl}}/companies/{{companyId}}/firs-settings
+Authorization: Bearer {{accessToken}}
+Content-Type: {{contentType}}
+
+{
+  "firs_entity_id": "entity123",
+  "firs_business_id": "business456"
+}
+
+### 22. Update NRS Credentials
+PATCH {{baseUrl}}/companies/{{companyId}}/nrs-credentials
+Authorization: Bearer {{accessToken}}
+Content-Type: {{contentType}}
+
+{
+  "nrs_businessid": "biz123",
+  "nrs_apikey": "key123",
+  "nrs_apisecret": "secret123",
+  "nrs_entityid": "entity123",
+  "nrs_publickey": "pubkey123",
+  "nrs_certificate": "cert_data"
+}
+
+###########################################################
+# CUSTOMER ENDPOINTS
+###########################################################
+
+### 23. Create Customer
+POST {{baseUrl}}/customers
+Authorization: Bearer {{accessToken}}
+Content-Type: {{contentType}}
+
+{
+  "customer_type": "individual",
+  "name": "Ade Okafor",
+  "email": "ade@example.com",
+  "phone1": "+2348012345678",
+  "phone2": "+2348087654321",
+  "billing_address": "45 Main Road",
+  "city": "Lagos",
+  "state": "Lagos",
+  "country": "Nigeria",
+  "postal_code": "10001",
+  "tax_identification_number": "TAX123",
+  "rc_number": "RC456"
+}
+
+### 24. Get All Customers
+GET {{baseUrl}}/customers?page=1&limit=20&search=Ade
+Authorization: Bearer {{accessToken}}
+
+### 25. Get Customer by ID
+GET {{baseUrl}}/customers/{{customerId}}
+Authorization: Bearer {{accessToken}}
+
+### 26. Update Customer
+PATCH {{baseUrl}}/customers/{{customerId}}
+Authorization: Bearer {{accessToken}}
+Content-Type: {{contentType}}
+
+{
+  "email": "ade.new@example.com",
+  "phone1": "+2348099999999",
+  "city": "Abuja"
+}
+
+### 27. Delete Customer
+DELETE {{baseUrl}}/customers/{{customerId}}
+Authorization: Bearer {{accessToken}}
+
+### 28. Export Customers
+GET {{baseUrl}}/customers/export
+Authorization: Bearer {{accessToken}}
+
+### 29. Import Customers
+POST {{baseUrl}}/customers/import
+Authorization: Bearer {{accessToken}}
+
+###########################################################
+# SUPPLIER ENDPOINTS
+###########################################################
+
+### 30. Create Supplier
+POST {{baseUrl}}/suppliers
+Authorization: Bearer {{accessToken}}
+Content-Type: {{contentType}}
+
+{
+  "supplier_type": "individual",
+  "supplier_name": "Premium Supplies Ltd",
+  "contact_person": "Mr. Supplier",
+  "email": "supplier@example.com",
+  "phone": "+2348011111111",
+  "tax_identification_number": "SUP123",
+  "rc_number": "RC789",
+  "address": "67 Supply Avenue",
+  "city": "Lagos",
+  "state": "Lagos",
+  "country": "Nigeria",
+  "payment_terms": "Net 30"
+}
+
+### 31. Get All Suppliers
+GET {{baseUrl}}/suppliers?page=1&limit=20
+Authorization: Bearer {{accessToken}}
+
+### 32. Get Supplier by ID
+GET {{baseUrl}}/suppliers/{{supplierId}}
+Authorization: Bearer {{accessToken}}
+
+### 33. Update Supplier
+PATCH {{baseUrl}}/suppliers/{{supplierId}}
+Authorization: Bearer {{accessToken}}
+Content-Type: {{contentType}}
+
+{
+  "email": "supplier.new@example.com",
+  "payment_terms": "Net 60"
+}
+
+### 34. Delete Supplier
+DELETE {{baseUrl}}/suppliers/{{supplierId}}
+Authorization: Bearer {{accessToken}}
+
+### 35. Export Suppliers
+GET {{baseUrl}}/suppliers/export
+Authorization: Bearer {{accessToken}}
+
+### 36. Import Suppliers
+POST {{baseUrl}}/suppliers/import
+Authorization: Bearer {{accessToken}}
+
+###########################################################
+# PRODUCT ENDPOINTS
+###########################################################
+
+### 37. Create Product Category
+POST {{baseUrl}}/products/categories
+Authorization: Bearer {{accessToken}}
+Content-Type: {{contentType}}
+
+{
+  "name": "Electronics",
+  "description": "Electronic products"
+}
+
+### 38. Get Product Categories
+GET {{baseUrl}}/products/categories
+Authorization: Bearer {{accessToken}}
+
+### 39. Update Product Category
+PATCH {{baseUrl}}/products/categories/{{productId}}
+Authorization: Bearer {{accessToken}}
+Content-Type: {{contentType}}
+
+{
+  "name": "Electronics & Gadgets"
+}
+
+### 40. Delete Product Category
+DELETE {{baseUrl}}/products/categories/{{productId}}
+Authorization: Bearer {{accessToken}}
+
+### 41. Create Product
+POST {{baseUrl}}/products
+Authorization: Bearer {{accessToken}}
+Content-Type: {{contentType}}
+
+{
+  "name": "Laptop Pro",
+  "sku": "LPT-001",
+  "description": "High-performance laptop",
+  "product_type": "product",
+  "unit_price": 150000,
+  "cost_price": 100000,
+  "tax_rate": 7.5,
+  "currency": "NGN",
+  "stock_quantity": 50,
+  "track_inventory": 1,
+  "status": "active"
+}
+
+### 42. Get All Products
+GET {{baseUrl}}/products?page=1&limit=20&search=Laptop
+Authorization: Bearer {{accessToken}}
+
+### 43. Get Product by ID
+GET {{baseUrl}}/products/{{productId}}
+Authorization: Bearer {{accessToken}}
+
+### 44. Update Product
+PATCH {{baseUrl}}/products/{{productId}}
+Authorization: Bearer {{accessToken}}
+Content-Type: {{contentType}}
+
+{
+  "unit_price": 160000,
+  "stock_quantity": 45
+}
+
+### 45. Delete Product
+DELETE {{baseUrl}}/products/{{productId}}
+Authorization: Bearer {{accessToken}}
+
+### 46. Export Products
+GET {{baseUrl}}/products/export
+Authorization: Bearer {{accessToken}}
+
+### 47. Import Products
+POST {{baseUrl}}/products/import
+Authorization: Bearer {{accessToken}}
+
+###########################################################
+# SALES INVOICE ENDPOINTS
+###########################################################
+
+### 48. Create Sales Invoice
+POST {{baseUrl}}/sales-invoices
+Authorization: Bearer {{accessToken}}
+Content-Type: {{contentType}}
+
+{
+  "customer_id": "{{customerId}}",
+  "invoice_type": "standard_invoice",
+  "issue_date": "2026-06-12",
+  "due_date": "2026-07-12",
+  "currency": "NGN",
+  "notes": "Thank you for your business",
+  "line_items": [
+    {
+      "product_id": "{{productId}}",
+      "description": "Laptop Pro",
+      "quantity": 2,
+      "unit_price": 150000,
+      "tax_rate": 7.5
+    }
+  ],
+  "discount_amount": 0
+}
+
+### 49. Get All Sales Invoices
+GET {{baseUrl}}/sales-invoices?page=1&limit=20
+Authorization: Bearer {{accessToken}}
+
+### 50. Get Sales Invoice by ID
+GET {{baseUrl}}/sales-invoices/{{invoiceId}}
+Authorization: Bearer {{accessToken}}
+
+### 51. Update Sales Invoice
+PATCH {{baseUrl}}/sales-invoices/{{invoiceId}}
+Authorization: Bearer {{accessToken}}
+Content-Type: {{contentType}}
+
+{
+  "notes": "Updated notes"
+}
+
+### 52. Delete Sales Invoice
+DELETE {{baseUrl}}/sales-invoices/{{invoiceId}}
+Authorization: Bearer {{accessToken}}
+
+### 53. Send Sales Invoice
+POST {{baseUrl}}/sales-invoices/{{invoiceId}}/send
+Authorization: Bearer {{accessToken}}
+Content-Type: {{contentType}}
+
+{
+  "send_to_customer": 1
+}
+
+### 54. Cancel Sales Invoice
+POST {{baseUrl}}/sales-invoices/{{invoiceId}}/cancel
+Authorization: Bearer {{accessToken}}
+
+### 55. Convert Proforma to Invoice
+POST {{baseUrl}}/sales-invoices/{{invoiceId}}/convert-to-invoice
+Authorization: Bearer {{accessToken}}
+
+### 56. Mark Invoice as Paid (with Receipt)
+POST {{baseUrl}}/sales-invoices/{{invoiceId}}/mark-paid
+Authorization: Bearer {{accessToken}}
+Content-Type: {{contentType}}
+
+{
+  "amount_paid": 321500,
+  "payment_method": "bank_transfer",
+  "payment_date": "2026-06-12"
+}
+
+### 57. Get Invoice Line Items
+GET {{baseUrl}}/sales-invoices/{{invoiceId}}/lineitems
+Authorization: Bearer {{accessToken}}
+
+###########################################################
+# PURCHASE INVOICE ENDPOINTS
+###########################################################
+
+### 58. Create Purchase Invoice
+POST {{baseUrl}}/purchase-invoices
+Authorization: Bearer {{accessToken}}
+Content-Type: {{contentType}}
+
+{
+  "supplier_id": "{{supplierId}}",
+  "invoice_number": "PUR-001",
+  "issue_date": "2026-06-12",
+  "due_date": "2026-07-12",
+  "currency": "NGN",
+  "notes": "Bulk order",
+  "line_items": [
+    {
+      "product_id": "{{productId}}",
+      "description": "Office Supplies",
+      "quantity": 100,
+      "unit_price": 5000,
+      "tax_rate": 7.5
+    }
+  ]
+}
+
+### 59. Get All Purchase Invoices
+GET {{baseUrl}}/purchase-invoices?page=1&limit=20
+Authorization: Bearer {{accessToken}}
+
+### 60. Get Purchase Invoice by ID
+GET {{baseUrl}}/purchase-invoices/{{purchaseInvoiceId}}
+Authorization: Bearer {{accessToken}}
+
+### 61. Update Purchase Invoice
+PATCH {{baseUrl}}/purchase-invoices/{{purchaseInvoiceId}}
+Authorization: Bearer {{accessToken}}
+Content-Type: {{contentType}}
+
+{
+  "notes": "Updated bulk order"
+}
+
+### 62. Delete Purchase Invoice
+DELETE {{baseUrl}}/purchase-invoices/{{purchaseInvoiceId}}
+Authorization: Bearer {{accessToken}}
+
+### 63. Mark Purchase Invoice as Paid
+POST {{baseUrl}}/purchase-invoices/{{purchaseInvoiceId}}/mark-paid
+Authorization: Bearer {{accessToken}}
+
+### 64. Get Purchase Invoice Line Items
+GET {{baseUrl}}/purchase-invoices/{{purchaseInvoiceId}}/lineitems
+Authorization: Bearer {{accessToken}}
+
+###########################################################
+# RECEIPT ENDPOINTS
+###########################################################
+
+### 65. Create Receipt
+POST {{baseUrl}}/receipts
+Authorization: Bearer {{accessToken}}
+Content-Type: {{contentType}}
+
+{
+  "sales_invoice_id": "{{invoiceId}}",
+  "amount_paid": 150000,
+  "payment_method": "bank_transfer",
+  "payment_date": "2026-06-12",
+  "currency": "NGN",
+  "note": "Payment received"
+}
+
+### 66. Get All Receipts
+GET {{baseUrl}}/receipts?page=1&limit=20
+Authorization: Bearer {{accessToken}}
+
+### 67. Get Receipt by ID
+GET {{baseUrl}}/receipts/{{receiptId}}
+Authorization: Bearer {{accessToken}}
+
+### 68. Get Receipts by Invoice
+GET {{baseUrl}}/receipts/invoice/{{invoiceId}}
+Authorization: Bearer {{accessToken}}
+
+### 69. Send Receipt
+POST {{baseUrl}}/receipts/{{receiptId}}/send
+Authorization: Bearer {{accessToken}}
+
+### 70. Delete Receipt
+DELETE {{baseUrl}}/receipts/{{receiptId}}
+Authorization: Bearer {{accessToken}}
+
+###########################################################
+# FIRS SUBMISSION ENDPOINTS
+###########################################################
+
+### 71. Submit Invoice to FIRS
+POST {{baseUrl}}/firs/submit
+Authorization: Bearer {{accessToken}}
+Content-Type: {{contentType}}
+
+{
+  "sales_invoice_id": "{{invoiceId}}"
+}
+
+### 72. Update Invoice Payment Status on FIRS
+POST {{baseUrl}}/firs/payment-status
+Authorization: Bearer {{accessToken}}
+Content-Type: {{contentType}}
+
+{
+  "sales_invoice_id": "{{invoiceId}}",
+  "status": "PAID"
+}
+
+### 73. Get FIRS QR Code for Invoice
+GET {{baseUrl}}/firs/invoices/{{invoiceId}}/qr
+Authorization: Bearer {{accessToken}}
+
+### 74. Get FIRS Business Health Check
+GET {{baseUrl}}/firs/health
+Authorization: Bearer {{accessToken}}
+
+### 75. Get FIRS Submissions
+GET {{baseUrl}}/firs/submissions
+Authorization: Bearer {{accessToken}}
+
+### 76. Get FIRS Submission by ID
+GET {{baseUrl}}/firs/submissions/sub-id
+Authorization: Bearer {{accessToken}}
+
+###########################################################
+# SUBSCRIPTION ENDPOINTS
+###########################################################
+
+### 77. Get Subscription Plans
+GET {{baseUrl}}/payments/subscription-plans
+Authorization: Bearer {{accessToken}}
+
+### 78. Get Subscription Plan by ID
+GET {{baseUrl}}/payments/subscription-plans/plan-id
+Authorization: Bearer {{accessToken}}
+
+### 79. Get Company Subscription
+GET {{baseUrl}}/payments/subscription
+Authorization: Bearer {{accessToken}}
+
+### 80. Initialize Subscription
+POST {{baseUrl}}/payments/initialize-subscription
+Authorization: Bearer {{accessToken}}
+Content-Type: {{contentType}}
+
+{
+  "plan_id": "plan-id",
+  "mode": "live"
+}
+
+### 81. Cancel Subscription
+PATCH {{baseUrl}}/payments/subscription/cancel
+Authorization: Bearer {{accessToken}}
+
+### 82. Get Subscription Payments
+GET {{baseUrl}}/payments/subscription-payments
+Authorization: Bearer {{accessToken}}
+
+###########################################################
+# PAYMENT LINK ENDPOINTS
+###########################################################
+
+### 83. Create Payment Link
+POST {{baseUrl}}/payment-links
+Authorization: Bearer {{accessToken}}
+Content-Type: {{contentType}}
+
+{
+  "invoice_id": "{{invoiceId}}",
+  "amount": 321500,
+  "description": "Payment for INV-2026-0001"
+}
+
+### 84. Get All Payment Links
+GET {{baseUrl}}/payment-links
+Authorization: Bearer {{accessToken}}
+
+### 85. Get Payment Link by ID
+GET {{baseUrl}}/payment-links/link-id
+Authorization: Bearer {{accessToken}}
+
+### 86. Delete Payment Link
+DELETE {{baseUrl}}/payment-links/link-id
+Authorization: Bearer {{accessToken}}
+
+###########################################################
+# INVOICE PAYMENT ENDPOINTS
+###########################################################
+
+### 87. Create Invoice Payment
+POST {{baseUrl}}/invoice-payments
+Authorization: Bearer {{accessToken}}
+Content-Type: {{contentType}}
+
+{
+  "invoice_id": "{{invoiceId}}",
+  "amount": 150000,
+  "payment_date": "2026-06-12",
+  "payment_method": "bank_transfer",
+  "reference": "TXN-123456"
+}
+
+### 88. Get All Invoice Payments
+GET {{baseUrl}}/invoice-payments?page=1&limit=20
+Authorization: Bearer {{accessToken}}
+
+### 89. Get Invoice Payment by ID
+GET {{baseUrl}}/invoice-payments/payment-id
+Authorization: Bearer {{accessToken}}
+
+### 90. Delete Invoice Payment
+DELETE {{baseUrl}}/invoice-payments/payment-id
+Authorization: Bearer {{accessToken}}
+
+###########################################################
+# INVOICE TEMPLATE ENDPOINTS
+###########################################################
+
+### 91. Create Invoice Template
+POST {{baseUrl}}/invoice-templates
+Authorization: Bearer {{accessToken}}
+Content-Type: {{contentType}}
+
+{
+  "name": "Standard Template",
+  "content": {
+    "header": "My Company",
+    "footer": "Thank you for your business"
+  },
+  "is_default": 0
+}
+
+### 92. Get All Invoice Templates
+GET {{baseUrl}}/invoice-templates
+Authorization: Bearer {{accessToken}}
+
+### 93. Get Invoice Template by ID
+GET {{baseUrl}}/invoice-templates/template-id
+Authorization: Bearer {{accessToken}}
+
+### 94. Update Invoice Template
+PATCH {{baseUrl}}/invoice-templates/template-id
+Authorization: Bearer {{accessToken}}
+Content-Type: {{contentType}}
+
+{
+  "name": "Updated Template",
+  "is_default": 1
+}
+
+### 95. Delete Invoice Template
+DELETE {{baseUrl}}/invoice-templates/template-id
+Authorization: Bearer {{accessToken}}
+
+###########################################################
+# API KEY ENDPOINTS
+###########################################################
+
+### 96. Create API Key
+POST {{baseUrl}}/api-keys
+Authorization: Bearer {{accessToken}}
+Content-Type: {{contentType}}
+
+{
+  "name": "Mobile App Key",
+  "expires_in": 365
+}
+
+### 97. Get All API Keys
+GET {{baseUrl}}/api-keys
+Authorization: Bearer {{accessToken}}
+
+### 98. Delete API Key
+DELETE {{baseUrl}}/api-keys/key-id
+Authorization: Bearer {{accessToken}}
+
+### 99. Regenerate API Key
+PATCH {{baseUrl}}/api-keys/key-id/regenerate
+Authorization: Bearer {{accessToken}}
+
+###########################################################
+# NOTIFICATION ENDPOINTS
+###########################################################
+
+### 100. Get All Notifications
+GET {{baseUrl}}/notifications?page=1&limit=20
+Authorization: Bearer {{accessToken}}
+
+### 101. Mark Notification as Read
+PATCH {{baseUrl}}/notifications/notif-id/read
+Authorization: Bearer {{accessToken}}
+
+### 102. Mark All Notifications as Read
+PATCH {{baseUrl}}/notifications/read-all
+Authorization: Bearer {{accessToken}}
+
+### 103. Delete Notification
+DELETE {{baseUrl}}/notifications/notif-id
+Authorization: Bearer {{accessToken}}
+
+###########################################################
+# WEBHOOK ENDPOINTS
+###########################################################
+
+### 104. Create Webhook
+POST {{baseUrl}}/webhooks
+Authorization: Bearer {{accessToken}}
+Content-Type: {{contentType}}
+
+{
+  "name": "Invoice Webhook",
+  "url": "https://example.com/webhooks/invoice",
+  "events": ["invoice.created", "invoice.paid"],
+  "active": 1
+}
+
+### 105. Get All Webhooks
+GET {{baseUrl}}/webhooks
+Authorization: Bearer {{accessToken}}
+
+### 106. Get Webhook by ID
+GET {{baseUrl}}/webhooks/webhook-id
+Authorization: Bearer {{accessToken}}
+
+### 107. Update Webhook
+PATCH {{baseUrl}}/webhooks/webhook-id
+Authorization: Bearer {{accessToken}}
+Content-Type: {{contentType}}
+
+{
+  "active": 0
+}
+
+### 108. Delete Webhook
+DELETE {{baseUrl}}/webhooks/webhook-id
+Authorization: Bearer {{accessToken}}
+
+### 109. Test Webhook
+POST {{baseUrl}}/webhooks/webhook-id/test
+Authorization: Bearer {{accessToken}}
+
+###########################################################
+# FILE UPLOAD ENDPOINTS
+###########################################################
+
+### 110. Upload File
+POST {{baseUrl}}/files/upload
+Authorization: Bearer {{accessToken}}
+
+### 111. Delete File
+DELETE {{baseUrl}}/files/file-id
+Authorization: Bearer {{accessToken}}
+
+###########################################################
+# WITHDRAWAL ENDPOINTS
+###########################################################
+
+### 112. Create Withdrawal Account
+POST {{baseUrl}}/withdrawal-accounts
+Authorization: Bearer {{accessToken}}
+Content-Type: {{contentType}}
+
+{
+  "account_name": "My Business Account",
+  "bank_name": "First Bank",
+  "account_number": "1234567890",
+  "account_type": "business"
+}
+
+### 113. Get All Withdrawal Accounts
+GET {{baseUrl}}/withdrawal-accounts
+Authorization: Bearer {{accessToken}}
+
+### 114. Delete Withdrawal Account
+DELETE {{baseUrl}}/withdrawal-accounts/account-id
+Authorization: Bearer {{accessToken}}
+
+### 115. Create Withdrawal
+POST {{baseUrl}}/withdrawals
+Authorization: Bearer {{accessToken}}
+Content-Type: {{contentType}}
+
+{
+  "account_id": "account-id",
+  "amount": 50000,
+  "description": "Weekly settlement"
+}
+
+### 116. Get All Withdrawals
+GET {{baseUrl}}/withdrawals?page=1&limit=20
+Authorization: Bearer {{accessToken}}
+
+### 117. Get Withdrawal by ID
+GET {{baseUrl}}/withdrawals/withdrawal-id
+Authorization: Bearer {{accessToken}}
+
+###########################################################
+# AUDIT LOG ENDPOINTS
+###########################################################
+
+### 118. Get All Audit Logs
+GET {{baseUrl}}/audit-logs?page=1&limit=50
+Authorization: Bearer {{accessToken}}
+
+### 119. Get Audit Log by ID
+GET {{baseUrl}}/audit-logs/log-id
+Authorization: Bearer {{accessToken}}
+
+###########################################################
+# REGISTRATION CODE ENDPOINTS
+###########################################################
+
+### 120. Create Registration Code
+POST {{baseUrl}}/registration-codes
+Authorization: Bearer {{accessToken}}
+Content-Type: {{contentType}}
+
+{
+  "code": "REF2026001",
+  "description": "Referral code for partner",
+  "max_uses": 5
+}
+
+### 121. Get All Registration Codes
+GET {{baseUrl}}/registration-codes?page=1&limit=20
+Authorization: Bearer {{accessToken}}
+
+### 122. Delete Registration Code
+DELETE {{baseUrl}}/registration-codes/code-id
+Authorization: Bearer {{accessToken}}
+
+### 123. Deactivate Registration Code
+PATCH {{baseUrl}}/registration-codes/code-id/deactivate
+Authorization: Bearer {{accessToken}}
+
+###########################################################
+# SUPPORT TICKET ENDPOINTS
+###########################################################
+
+### 124. Create Support Ticket
+POST {{baseUrl}}/support-tickets
+Authorization: Bearer {{accessToken}}
+Content-Type: {{contentType}}
+
+{
+  "subject": "Invoice not showing",
+  "description": "Cannot see my recent invoice",
+  "priority": "high",
+  "category": "invoicing"
+}
+
+### 125. Get All Support Tickets
+GET {{baseUrl}}/support-tickets?page=1&limit=20
+Authorization: Bearer {{accessToken}}
+
+### 126. Get Support Ticket by ID
+GET {{baseUrl}}/support-tickets/ticket-id
+Authorization: Bearer {{accessToken}}
+
+### 127. Update Support Ticket
+PATCH {{baseUrl}}/support-tickets/ticket-id
+Authorization: Bearer {{accessToken}}
+Content-Type: {{contentType}}
+
+{
+  "status": "in_progress",
+  "response": "We are looking into this issue"
+}
+
+### 128. Delete Support Ticket
+DELETE {{baseUrl}}/support-tickets/ticket-id
+Authorization: Bearer {{accessToken}}
+
+###########################################################
+# NOTES FOR TESTING
+###########################################################
+# 
+# 1. Replace @accessToken with an actual JWT token from login
+# 2. Replace all IDs with actual values from your database
+# 3. For file uploads, use the @file directive with actual file path
+# 4. Paystack webhook (POST /payments/paystack/webhook) is public
+# 5. Rate limits: Auth endpoints (20/15min), General API (200/1min)
+# 6. All protected routes require Bearer token in Authorization header
+# 7. Test in demo mode first before switching to live mode
+#
+###########################################################
