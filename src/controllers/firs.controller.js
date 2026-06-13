@@ -28,12 +28,147 @@ const toTimeStr = (d) => {
 };
 
 // Map our invoice + company + lineitems into RedTech's MINIMAL invoice payload
+// const mapInvoiceToFirs = (invoice, company, lineitems, businessId) => {
+//   const taxRate = lineitems[0]?.tax_rate ? Number(lineitems[0].tax_rate) : 7.5;
+
+//   return {
+//     requestType: "MINIMAL",
+//     // invoiceNumber: invoice.invoice_number,
+//     invoiceNumber: invoice.invoice_number?.replace(/-/g, "") || "",
+//     invoiceBusinessId: businessId,
+//     invoiceEntityId: company.firs_entity_id || businessId,
+//     invoiceIssueDate: toDateStr(invoice.issue_date),
+//     invoiceDueDate: toDateStr(invoice.due_date),
+//     invoiceIssueTime: toTimeStr(invoice.created_at),
+//     invoiceTypeCode: "389",
+//     invoicePaymentStatus: invoice.status === "paid" ? "PAID" : "UNPAID",
+//     invoiceNote: invoice.note || "",
+//     invoiceTaxPointDate: toDateStr(invoice.issue_date),
+//     invoiceDocumentCurrencyCode: invoice.currency || "NGN",
+//     invoiceTaxCurrencyCode: invoice.currency || "NGN",
+
+//     // Buyer
+//     invoiceCustomerPartyId: invoice.customer_id || "",
+//     invoiceCustomerPartyTin: invoice.customer_tax_id || "",
+//     invoiceCustomerPartyEmail: invoice.customer_email || "",
+//     invoiceCustomerPartyTelephone: invoice.customer_phone || "",
+//     invoiceCustomerPartyBusinessDescription:
+//       invoice.customer_business_description || "",
+//     invoiceCustomerPartyName: invoice.customer_name || "",
+//     invoiceCustomerCityName: invoice.customer_city || "",
+//     invoiceCustomerPostalZone: invoice.customer_postal_zone || "",
+//     invoiceCustomerCountry: invoice.customer_country || "NG",
+//     invoiceCustomerStreetName: invoice.customer_address || "",
+//     invoiceCustomerLga: invoice.customer_lga || "",
+//     invoiceCustomerState: invoice.customer_state || "",
+
+//     // Supplier (our company)
+//     invoiceSupplierPartyId: businessId,
+//     invoiceSupplierPartyTin:
+//       company.tax_identification_number || company.tax_id || "",
+//     invoiceSupplierPartyEmail: company.business_email || "",
+//     invoiceSupplierPartyTelephone: company.business_phone || "",
+//     invoiceSupplierPartyBusinessDescription: company.business_description || "",
+//     invoiceSupplierPartyName: company.company_name || company.name || "",
+//     invoiceSupplierLga: company.lga || "",
+//     invoiceSupplierState: company.state || "",
+//     invoiceSupplierCityName: company.city || "",
+//     invoiceSupplierPostalZone: company.postal_code || "",
+//     invoiceSupplierCountry: company.country || "NG",
+//     invoiceSupplierStreetName: company.address || "",
+
+//     // Totals
+//     invoiceLineExtensionAmount: Number(invoice.subtotal),
+//     invoiceTaxExclusiveAmount: Number(invoice.subtotal),
+//     invoiceTaxInclusiveAmount: Number(invoice.total),
+//     invoicePayableAmount: Number(invoice.total),
+
+//     invoiceAllowanceCharge: [
+//       {
+//         invoiceAllowanceChargeIndicator: false,
+//         invoiceAllowanceChargeAmount: Number(invoice.tax_amount || 0),
+//       },
+//     ],
+
+//     invoiceLine: lineitems.map((item, i) => {
+//       const qty = Number(item.quantity || 0);
+//       const price = Number(item.unit_price || 0);
+//       const discount = Number(item.discount_amount || 0);
+//       const tax = Number(item.tax_amount || 0);
+
+//       const lineTotal = Number(item.line_total || qty * price - discount);
+
+//       return {
+//         invoiceLineProductCategory:
+//           item.product_category || "General Goods/Services",
+
+//         invoiceLineInvoicedQuantity: qty,
+
+//         invoiceLineExtensionAmount: lineTotal,
+
+//         invoiceLineItemName: item.item_name || "Item",
+
+//         invoiceLineItemDescription: item.description || "",
+
+//         invoiceLinePriceAmount: price,
+
+//         invoiceLinePriceBaseQuantity: 1,
+
+//         invoiceLinePriceUnit: "UNIT",
+
+//         // REQUIRED BY REDTECH (from sample)
+//         invoiceLineDiscountRate:
+//           discount && price ? discount / (qty * price) : 0,
+
+//         invoiceLineDiscountAmount: discount || 0,
+
+//         invoiceLineFeeRate: 0,
+
+//         invoiceLineFeeAmount: tax || 0,
+
+//         invoiceLineHsnCode: "0000",
+//       };
+//     }),
+//     invoiceTaxTotal: [
+//       {
+//         invoiceTaxTotalAmount: Number(invoice.tax_amount || 0),
+
+//         invoiceTaxTotalSubTotal: [
+//           {
+//             taxSubTotalTaxableAmount: Number(invoice.subtotal || 0),
+
+//             taxSubTotalTaxAmount: Number(invoice.tax_amount || 0),
+
+//             taxSubTotalCategoryId: "STANDARD_VAT",
+
+//             taxSubTotalCategoryPercent: taxRate,
+//           },
+//         ],
+//       },
+//     ],
+//   };
+// };
+
 const mapInvoiceToFirs = (invoice, company, lineitems, businessId) => {
   const taxRate = lineitems[0]?.tax_rate ? Number(lineitems[0].tax_rate) : 7.5;
 
+  // Calculate from actual line items — don't trust invoice-level fields
+  const lineItemsExtensionAmount = lineitems.reduce((sum, item) => {
+    const qty = Number(item.quantity || 0);
+    const price = Number(item.unit_price || 0);
+    const discount = Number(item.discount_amount || 0);
+    return sum + (qty * price - discount);
+  }, 0);
+
+  const totalTax = lineitems.reduce(
+    (sum, item) => sum + Number(item.tax_amount || 0),
+    0,
+  );
+  const totalWithTax = lineItemsExtensionAmount + totalTax;
+
   return {
     requestType: "MINIMAL",
-    invoiceNumber: invoice.invoice_number,
+    invoiceNumber: invoice.invoice_number?.replace(/-/g, "") || "",
     invoiceBusinessId: businessId,
     invoiceEntityId: company.firs_entity_id || businessId,
     invoiceIssueDate: toDateStr(invoice.issue_date),
@@ -61,54 +196,72 @@ const mapInvoiceToFirs = (invoice, company, lineitems, businessId) => {
     invoiceCustomerLga: invoice.customer_lga || "",
     invoiceCustomerState: invoice.customer_state || "",
 
-    // Supplier (our company)
+    // Supplier
     invoiceSupplierPartyId: businessId,
     invoiceSupplierPartyTin:
       company.tax_identification_number || company.tax_id || "",
-    invoiceSupplierPartyEmail: company.email || "",
-    invoiceSupplierPartyTelephone: company.phone || "",
+    invoiceSupplierPartyEmail: company.business_email || "",
+    invoiceSupplierPartyTelephone: company.business_phone || "",
     invoiceSupplierPartyBusinessDescription: company.business_description || "",
     invoiceSupplierPartyName: company.company_name || company.name || "",
     invoiceSupplierLga: company.lga || "",
     invoiceSupplierState: company.state || "",
     invoiceSupplierCityName: company.city || "",
-    invoiceSupplierPostalZone: company.postal_zone || "",
+    invoiceSupplierPostalZone: company.postal_code || "",
     invoiceSupplierCountry: company.country || "NG",
     invoiceSupplierStreetName: company.address || "",
 
-    // Totals
-    invoiceLineExtensionAmount: Number(invoice.subtotal),
-    invoiceTaxExclusiveAmount: Number(invoice.subtotal),
-    invoiceTaxInclusiveAmount: Number(invoice.total),
-    invoicePayableAmount: Number(invoice.total),
+    // ✅ Totals derived from actual line items
+    invoiceLineExtensionAmount: lineItemsExtensionAmount,
+    invoiceTaxExclusiveAmount: lineItemsExtensionAmount,
+    invoiceTaxInclusiveAmount: totalWithTax,
+    invoicePayableAmount: totalWithTax,
 
-    invoiceAllowanceCharge: [
-      {
-        invoiceAllowanceChargeIndicator: false,
-        invoiceAllowanceChargeAmount: Number(invoice.tax_total) || 0,
-      },
-    ],
+    // Omit the key entirely when no discount
+    ...(invoice.discount_amount
+      ? {
+          invoiceAllowanceCharge: [
+            {
+              invoiceAllowanceChargeIndicator: false,
+              invoiceAllowanceChargeAmount: 500,
+            },
+          ],
+        }
+      : {}),
 
-    invoiceLine: lineitems.map((item) => ({
-      invoiceLineHsnCode: item.hsn_code || "",
-      invoiceLineProductCategory: item.category || "General Goods/Services",
-      invoiceLineInvoicedQuantity: Number(item.quantity),
-      invoiceLineExtensionAmount:
-        Number(item.total) - Number(item.tax_amount || 0),
-      invoiceLineItemName: item.description?.slice(0, 100) || "Item",
-      invoiceLineItemDescription: item.description || "",
-      invoiceLinePriceAmount: Number(item.unit_price),
-      invoiceLinePriceBaseQuantity: 1,
-      invoiceLinePriceUnit: item.unit || "UNIT",
-    })),
+    invoiceLine: lineitems.map((item) => {
+      const qty = Number(item.quantity || 0);
+      const price = Number(item.unit_price || 0);
+      const discount = Number(item.discount_amount || 0);
+      const tax = Number(item.tax_amount || 0);
+      const lineExt = qty * price - discount; // ✅ matches what we summed above
+
+      return {
+        invoiceLineProductCategory:
+          item.product_category || "General Goods/Services",
+        invoiceLineInvoicedQuantity: qty,
+        invoiceLineExtensionAmount: lineExt, // ✅ tax-exclusive line total
+        invoiceLineItemName: item.item_name || "Item",
+        invoiceLineItemDescription: item.description || "",
+        invoiceLinePriceAmount: price,
+        invoiceLinePriceBaseQuantity: 1,
+        invoiceLinePriceUnit: "UNIT",
+        invoiceLineDiscountRate:
+          discount && price ? discount / (qty * price) : 0,
+        invoiceLineDiscountAmount: discount || 0,
+        invoiceLineFeeRate: 0,
+        invoiceLineFeeAmount: tax || 0,
+        invoiceLineHsnCode: "0000",
+      };
+    }),
 
     invoiceTaxTotal: [
       {
-        invoiceTaxTotalAmount: Number(invoice.tax_total) || 0,
+        invoiceTaxTotalAmount: totalTax,
         invoiceTaxTotalSubTotal: [
           {
-            taxSubTotalTaxableAmount: Number(invoice.subtotal),
-            taxSubTotalTaxAmount: Number(invoice.tax_total) || 0,
+            taxSubTotalTaxableAmount: lineItemsExtensionAmount,
+            taxSubTotalTaxAmount: totalTax,
             taxSubTotalCategoryId: "STANDARD_VAT",
             taxSubTotalCategoryPercent: taxRate,
           },
@@ -122,10 +275,10 @@ const mapInvoiceToFirs = (invoice, company, lineitems, businessId) => {
 const loadInvoiceForFirs = async (invoiceId, companyId) => {
   const [invoices] = await pool.query(
     `SELECT si.*,
-            c.id as customer_id, c.name as customer_name, c.tax_id as customer_tax_id,
-            c.address as customer_address, c.email as customer_email, c.phone as customer_phone,
+            c.id as customer_id, c.name as customer_name, c.tax_identification_number as customer_tax_id,
+            c.billing_address as customer_address, c.email as customer_email, c.phone1 as customer_phone,
             c.city as customer_city, c.state as customer_state, c.lga as customer_lga,
-            c.country as customer_country, c.postal_zone as customer_postal_zone,
+            c.country as customer_country, c.postal_code as customer_postal_zone,
             c.business_description as customer_business_description
      FROM sales_invoices si
      LEFT JOIN customers c ON c.id = si.customer_id
@@ -171,13 +324,15 @@ const submitToFirs = async (req, res, next) => {
 
     const { businessId } = getFirsConfig(mode);
     const payload = mapInvoiceToFirs(invoice, company, lineitems, businessId);
-
+    console.log(payload);
     const submissionId = uuidv4();
+    const publicId = uuidv4();
     await pool.query(
-      `INSERT INTO firs_submissions (id, company_id, invoice_id, mode, payload, status)
-       VALUES (?, ?, ?, ?, ?, 'pending')`,
+      `INSERT INTO firs_submissions (id, public_id, company_id, invoice_id, mode, request_payload, status)
+       VALUES (?, ?, ?, ?, ?, ?, 'pending')`,
       [
         submissionId,
+        publicId,
         req.user.company_id,
         invoice_id,
         mode,
@@ -193,7 +348,7 @@ const submitToFirs = async (req, res, next) => {
       );
 
       await pool.query(
-        `UPDATE firs_submissions SET status = 'submitted', irn = ?, response = ?, submitted_at = NOW(), updated_at = NOW() WHERE id = ?`,
+        `UPDATE firs_submissions SET status = 'submitted', irn = ?, response_payload = ?, submitted_at = NOW(), updated_at = NOW() WHERE id = ?`,
         [invoice.invoice_number, JSON.stringify(response.data), submissionId],
       );
 
@@ -218,7 +373,7 @@ const submitToFirs = async (req, res, next) => {
     } catch (firsErr) {
       const responseData = firsErr.response?.data || { error: firsErr.message };
       await pool.query(
-        `UPDATE firs_submissions SET status = 'failed', response = ?, updated_at = NOW() WHERE id = ?`,
+        `UPDATE firs_submissions SET status = 'failed', response_payload = ?, updated_at = NOW() WHERE id = ?`,
         [JSON.stringify(responseData), submissionId],
       );
       return error(
@@ -274,7 +429,7 @@ const updateInvoicePaymentStatus = async (req, res, next) => {
     );
 
     await pool.query(
-      `UPDATE firs_submissions SET response = ?, updated_at = NOW() WHERE id = ?`,
+      `UPDATE firs_submissions SET response_payload = ?, updated_at = NOW() WHERE id = ?`,
       [JSON.stringify(response.data), submissions[0].id],
     );
 

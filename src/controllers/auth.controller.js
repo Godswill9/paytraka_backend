@@ -1,3 +1,4 @@
+require("dotenv").config();
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const { v4: uuidv4 } = require("uuid");
@@ -29,16 +30,31 @@ const generateTokens = (userId, companyId) => {
 
 // ─────────────────────────────────────────────────────────
 // POST /auth/register
-// Step 1: Collect user details → save as unverified → send OTP
+// Collects user + company info → saves as unverified → sends OTP
 // ─────────────────────────────────────────────────────────
 const register = async (req, res, next) => {
   try {
-    const { first_name, last_name, email, password, phone } = req.body;
+    const {
+      first_name,
+      last_name,
+      email,
+      phone,
+      password,
+      company_name, // required
+      trading_name, // optional
+    } = req.body;
 
-    if (!first_name || !last_name || !email || !phone || !password) {
+    if (
+      !first_name ||
+      !last_name ||
+      !email ||
+      !phone ||
+      !password ||
+      !company_name
+    ) {
       return error(
         res,
-        "first_name, last_name, email, phone and password are required",
+        "first_name, last_name, email, phone, password and company_name are required",
         400,
       );
     }
@@ -58,35 +74,38 @@ const register = async (req, res, next) => {
       if (u.status === "not-verified") {
         // Resend OTP instead of blocking
         const otp = generateOtp();
-        const otpId = uuidv4();
         const now = new Date();
 
-        // Invalidate old OTPs for this user
         await pool.query(
           `UPDATE registration_codes SET is_used = 1 WHERE user_id = ? AND purpose = 'registration' AND is_used = 0`,
           [u.id],
         );
-
         await pool.query(
           `INSERT INTO registration_codes (id, code, purpose, is_used, user_id, expires_at, created_at)
            VALUES (?, ?, 'registration', 0, ?, ?, ?)`,
-          [otpId, otp, u.id, new Date(now.getTime() + 24 * 3600 * 1000), now],
+          [
+            uuidv4(),
+            otp,
+            u.id,
+            new Date(now.getTime() + 24 * 3600 * 1000),
+            now,
+          ],
         );
 
-        const [userRows] = await pool.query(
+        const [[userRow]] = await pool.query(
           "SELECT first_name, last_name FROM users WHERE id = ?",
           [u.id],
         );
-        const fullName = `${userRows[0].first_name} ${userRows[0].last_name}`;
 
-        await sendOtpEmail({ to: email, name: fullName, otp }).catch((e) =>
-          console.error("OTP resend email failed:", e.message),
-        );
-
+        sendOtpEmail({
+          to: email,
+          name: `${userRow.first_name} ${userRow.last_name}`,
+          otp,
+        }).catch((e) => console.error("OTP resend failed:", e.message));
         return success(
           res,
           { userId: u.id },
-          "Account exists but not verified. A new OTP has been sent to your email.",
+          "Account exists but is not verified. A new OTP has been sent to your email.",
         );
       }
 
@@ -103,37 +122,44 @@ const register = async (req, res, next) => {
 
     const passwordHash = await bcrypt.hash(password, 12);
     const userId = uuidv4();
+    const public_id = uuidv4();
     const otp = generateOtp();
-    const otpId = uuidv4();
     const now = new Date();
-    const fullName = `${first_name} ${last_name}`;
 
     const conn = await pool.getConnection();
     await conn.beginTransaction();
 
     try {
-      // Insert user as unverified — no company yet
       await conn.query(
-        `INSERT INTO users (id, first_name, last_name, full_name, email, phone, password_hash, status, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'not-verified', ?, ?)`,
+        `INSERT INTO users
+           (id, public_id, first_name, last_name, email, phone, password_hash,
+            company_name, trading_name, role, status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'admin', 'not-verified', ?, ?)`,
         [
           userId,
+          public_id,
           first_name,
           last_name,
-          fullName,
           email,
           phone,
           passwordHash,
+          company_name,
+          trading_name || null,
           now,
           now,
         ],
       );
 
-      // Store OTP
       await conn.query(
         `INSERT INTO registration_codes (id, code, purpose, is_used, user_id, expires_at, created_at)
          VALUES (?, ?, 'registration', 0, ?, ?, ?)`,
-        [otpId, otp, userId, new Date(now.getTime() + 24 * 3600 * 1000), now],
+        [
+          uuidv4(),
+          otp,
+          userId,
+          new Date(now.getTime() + 24 * 3600 * 1000),
+          now,
+        ],
       );
 
       await conn.commit();
@@ -143,12 +169,11 @@ const register = async (req, res, next) => {
       conn.release();
       throw e;
     }
-
-    // Send OTP email (non-blocking on failure)
-    await sendOtpEmail({ to: email, name: fullName, otp }).catch((e) =>
-      console.error("Registration OTP email failed:", e.message),
-    );
-
+    sendOtpEmail({
+      to: email,
+      name: `${first_name} ${last_name}`,
+      otp,
+    }).catch((e) => console.error("Registration OTP email failed:", e.message));
     return created(
       res,
       { userId },
@@ -167,7 +192,7 @@ const register = async (req, res, next) => {
 
 // ─────────────────────────────────────────────────────────
 // POST /auth/verify-otp
-// Step 2: Verify OTP → activate user → create company → return tokens
+// Verify OTP → activate user → create company → return tokens
 // ─────────────────────────────────────────────────────────
 const verifyOtp = async (req, res, next) => {
   try {
@@ -175,63 +200,67 @@ const verifyOtp = async (req, res, next) => {
     if (!otp || !user_id)
       return error(res, "otp and user_id are required", 400);
 
-    // Find valid OTP
     const [codes] = await pool.query(
       `SELECT * FROM registration_codes
        WHERE code = ? AND user_id = ? AND purpose = 'registration'
          AND is_used = 0 AND expires_at > NOW()`,
       [otp, user_id],
     );
-
     if (!codes.length) return error(res, "Invalid or expired OTP", 400);
 
-    const regCode = codes[0];
-
-    // Get user
-    const [users] = await pool.query("SELECT * FROM users WHERE id = ?", [
+    const [[user]] = await pool.query("SELECT * FROM users WHERE id = ?", [
       user_id,
     ]);
-    if (!users.length) return error(res, "User not found", 404);
-    const user = users[0];
-
-    if (user.status !== "not-verified") {
+    if (!user) return error(res, "User not found", 404);
+    if (user.status !== "not-verified")
       return error(res, "Account is already verified", 400);
-    }
 
     const conn = await pool.getConnection();
     await conn.beginTransaction();
 
     try {
-      // Mark OTP as used
+      // Mark OTP used
       await conn.query(
         "UPDATE registration_codes SET is_used = 1, used_by = ? WHERE id = ?",
-        [user_id, regCode.id],
+        [user_id, codes[0].id],
       );
 
-      // Create company with minimal details (owner linked, status pending_verification)
+      // Create company — use company_name & trading_name already on the user row
       const companyId = uuidv4();
       const publicId = `PT-${Date.now().toString(36).toUpperCase()}`;
 
       await conn.query(
-        `INSERT INTO companies (id, public_id, owner_user_id, business_email, status, firs_enabled,
-          generate_payment_link, display_bank_details_on_invoice, auto_submit_to_firs, created_at, updated_at)
-         VALUES (?, ?, ?, ?, 'pending_verification', 0, 0, 0, 0, NOW(), NOW())`,
-        [companyId, publicId, user_id, user.email],
+        `INSERT INTO companies
+           (id, public_id, owner_user_id, company_name, trading_name, business_email,
+            status, firs_enabled, generate_payment_link,
+            display_bank_details_on_invoice, auto_submit_to_firs, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, 'pending_verification', 0, 0, 0, 0, NOW(), NOW())`,
+        [
+          companyId,
+          publicId,
+          user_id,
+          user.company_name,
+          user.trading_name || null,
+          user.email,
+        ],
       );
 
-      // Activate user, link company
+      // Activate user, link company, set verified timestamp
       await conn.query(
-        `UPDATE users SET status = 'active', role = 'admin', company_id = ?, updated_at = NOW() WHERE id = ?`,
+        `UPDATE users
+         SET status = 'active', role = 'admin', company_id = ?,
+             email_verified_at = NOW(), last_login_at = NOW(), updated_at = NOW()
+         WHERE id = ?`,
         [companyId, user_id],
       );
 
       await conn.commit();
       conn.release();
 
-      // Send welcome email (non-blocking)
-      sendWelcomeEmail({ to: user.email, name: user.full_name }).catch((e) =>
-        console.error("Welcome email failed:", e.message),
-      );
+      sendWelcomeEmail({
+        to: user.email,
+        name: `${user.first_name} ${user.last_name}`,
+      }).catch((e) => console.error("Welcome email failed:", e.message));
 
       await audit({
         userId: user_id,
@@ -255,6 +284,8 @@ const verifyOtp = async (req, res, next) => {
             last_name: user.last_name,
             email: user.email,
             company_id: companyId,
+            company_name: user.company_name,
+            role: "admin",
             status: "active",
             kyc_complete: false,
           },
@@ -273,23 +304,19 @@ const verifyOtp = async (req, res, next) => {
 
 // ─────────────────────────────────────────────────────────
 // POST /auth/resend-otp
-// Resend registration OTP
 // ─────────────────────────────────────────────────────────
 const resendOtp = async (req, res, next) => {
   try {
     const { user_id } = req.body;
     if (!user_id) return error(res, "user_id is required", 400);
 
-    const [users] = await pool.query("SELECT * FROM users WHERE id = ?", [
+    const [[user]] = await pool.query("SELECT * FROM users WHERE id = ?", [
       user_id,
     ]);
-    if (!users.length) return error(res, "User not found", 404);
-
-    const user = users[0];
+    if (!user) return error(res, "User not found", 404);
     if (user.status !== "not-verified")
-      return error(res, "Account already verified", 400);
+      return error(res, "Account is already verified", 400);
 
-    // Invalidate previous OTPs
     await pool.query(
       `UPDATE registration_codes SET is_used = 1 WHERE user_id = ? AND purpose = 'registration' AND is_used = 0`,
       [user_id],
@@ -303,9 +330,11 @@ const resendOtp = async (req, res, next) => {
       [uuidv4(), otp, user_id, new Date(now.getTime() + 24 * 3600 * 1000), now],
     );
 
-    await sendOtpEmail({ to: user.email, name: user.full_name, otp }).catch(
-      (e) => console.error("Resend OTP email failed:", e.message),
-    );
+    sendOtpEmail({
+      to: user.email,
+      name: `${user.first_name} ${user.last_name}`,
+      otp,
+    }).catch((e) => console.error("Resend OTP email failed:", e.message));
 
     return success(res, {}, "OTP resent to your email");
   } catch (err) {
@@ -323,9 +352,11 @@ const login = async (req, res, next) => {
       return error(res, "Email and password are required", 400);
 
     const [rows] = await pool.query(
-      `SELECT u.id, u.company_id, u.first_name, u.last_name, u.full_name, u.email,
-              u.password_hash, u.is_active, u.status, u.avatar_url,
-              c.company_name, c.status as company_status, c.firs_enabled
+      `SELECT u.id, u.public_id, u.company_id, u.first_name, u.last_name,
+              u.email, u.phone, u.password_hash, u.status, u.role,
+              u.company_name, u.trading_name,
+              c.company_name as reg_company_name, c.status as company_status,
+              c.firs_enabled, c.logo_url
        FROM users u
        LEFT JOIN companies c ON c.id = u.company_id
        WHERE u.email = ?`,
@@ -343,12 +374,20 @@ const login = async (req, res, next) => {
         403,
       );
     }
-
-    if (!user.is_active)
+    if (user.status === "suspended") {
+      return error(res, "Account suspended. Please contact support.", 403);
+    }
+    if (user.status === "inactive") {
       return error(res, "Account is inactive. Contact support.", 403);
+    }
 
     const valid = await bcrypt.compare(password, user.password_hash);
     if (!valid) return error(res, "Invalid email or password", 401);
+
+    // Update last login
+    await pool.query("UPDATE users SET last_login_at = NOW() WHERE id = ?", [
+      user.id,
+    ]);
 
     const { accessToken, refreshToken } = generateTokens(
       user.id,
@@ -371,15 +410,16 @@ const login = async (req, res, next) => {
         refreshToken,
         user: {
           id: user.id,
+          public_id: user.public_id,
           first_name: user.first_name,
           last_name: user.last_name,
-          full_name: user.full_name,
           email: user.email,
-          avatar_url: user.avatar_url,
+          role: user.role,
           company_id: user.company_id,
-          company_name: user.company_name,
+          company_name: user.reg_company_name || user.company_name,
           company_status: user.company_status,
           firs_enabled: user.firs_enabled,
+          logo_url: user.logo_url,
         },
       },
       "Login successful",
@@ -427,15 +467,17 @@ const refreshToken = async (req, res, next) => {
       );
     }
 
-    const [rows] = await pool.query(
-      "SELECT id, company_id, is_active FROM users WHERE id = ? AND is_active = 1",
+    const [[u]] = await pool.query(
+      `SELECT id, company_id, status FROM users WHERE id = ?`,
       [decoded.userId],
     );
-    if (!rows.length) return error(res, "User not found or inactive", 401);
+    if (!u || u.status === "inactive" || u.status === "suspended") {
+      return error(res, "User not found or inactive", 401);
+    }
 
     const { accessToken, refreshToken: newRefresh } = generateTokens(
-      rows[0].id,
-      rows[0].company_id,
+      u.id,
+      u.company_id,
     );
     return success(
       res,
@@ -455,21 +497,19 @@ const forgotPassword = async (req, res, next) => {
     const { email } = req.body;
     if (!email) return error(res, "Email is required", 400);
 
-    const [rows] = await pool.query(
-      "SELECT id, full_name, first_name, status FROM users WHERE email = ?",
+    const [[user]] = await pool.query(
+      "SELECT id, first_name, last_name, status FROM users WHERE email = ?",
       [email],
     );
 
-    // Always return 200 to prevent email enumeration
-    if (!rows.length) {
+    // Always 200 — prevent email enumeration
+    if (!user)
       return success(
         res,
         {},
         "If this email is registered, a reset OTP has been sent.",
       );
-    }
 
-    const user = rows[0];
     if (user.status === "not-verified") {
       return error(
         res,
@@ -478,7 +518,6 @@ const forgotPassword = async (req, res, next) => {
       );
     }
 
-    // Invalidate previous reset OTPs
     await pool.query(
       `UPDATE registration_codes SET is_used = 1 WHERE user_id = ? AND purpose = 'reset_password' AND is_used = 0`,
       [user.id],
@@ -486,7 +525,6 @@ const forgotPassword = async (req, res, next) => {
 
     const otp = generateOtp();
     const now = new Date();
-
     await pool.query(
       `INSERT INTO registration_codes (id, code, purpose, is_used, user_id, expires_at, created_at)
        VALUES (?, ?, 'reset_password', 0, ?, ?, ?)`,
@@ -495,7 +533,7 @@ const forgotPassword = async (req, res, next) => {
 
     await sendPasswordResetEmail({
       to: email,
-      name: user.full_name || user.first_name,
+      name: `${user.first_name} ${user.last_name}`,
       otp,
     }).catch((e) => console.error("Password reset email failed:", e.message));
 
@@ -511,35 +549,31 @@ const forgotPassword = async (req, res, next) => {
 
 // ─────────────────────────────────────────────────────────
 // POST /auth/verify-reset-otp
-// Verify reset OTP before allowing new password
 // ─────────────────────────────────────────────────────────
 const verifyResetOtp = async (req, res, next) => {
   try {
     const { email, otp } = req.body;
     if (!email || !otp) return error(res, "email and otp are required", 400);
 
-    const [users] = await pool.query("SELECT id FROM users WHERE email = ?", [
+    const [[user]] = await pool.query("SELECT id FROM users WHERE email = ?", [
       email,
     ]);
-    if (!users.length) return error(res, "Invalid request", 400);
+    if (!user) return error(res, "Invalid request", 400);
 
     const [codes] = await pool.query(
       `SELECT id FROM registration_codes
        WHERE code = ? AND user_id = ? AND purpose = 'reset_password'
          AND is_used = 0 AND expires_at > NOW()`,
-      [otp, users[0].id],
+      [otp, user.id],
     );
-
     if (!codes.length) return error(res, "Invalid or expired OTP", 400);
 
-    // Generate a short-lived reset token to allow password change
     const resetToken = jwt.sign(
-      { userId: users[0].id, purpose: "reset_password" },
+      { userId: user.id, purpose: "reset_password" },
       process.env.JWT_SECRET,
       { expiresIn: "15m" },
     );
 
-    // Mark OTP as used
     await pool.query("UPDATE registration_codes SET is_used = 1 WHERE id = ?", [
       codes[0].id,
     ]);
@@ -556,14 +590,12 @@ const verifyResetOtp = async (req, res, next) => {
 
 // ─────────────────────────────────────────────────────────
 // POST /auth/reset-password
-// Uses reset_token from verify-reset-otp step
 // ─────────────────────────────────────────────────────────
 const resetPassword = async (req, res, next) => {
   try {
     const { reset_token, new_password } = req.body;
     if (!reset_token || !new_password)
       return error(res, "reset_token and new_password are required", 400);
-
     if (new_password.length < 7)
       return error(res, "Password must be at least 7 characters", 400);
 
@@ -598,11 +630,13 @@ const resetPassword = async (req, res, next) => {
 // ─────────────────────────────────────────────────────────
 const getMe = async (req, res, next) => {
   try {
-    const [rows] = await pool.query(
-      `SELECT u.id, u.first_name, u.last_name, u.full_name, u.email, u.phone,
-              u.avatar_url, u.status, u.company_id,
-              c.company_name, c.trading_name, c.business_email, c.logo_url,
-              c.status as company_status, c.firs_enabled, c.generate_payment_link,
+    const [[row]] = await pool.query(
+      `SELECT u.id, u.public_id, u.first_name, u.last_name, u.email, u.phone,
+              u.role, u.status, u.company_id, u.company_name, u.trading_name,
+              u.email_verified_at, u.last_login_at,
+              c.company_name as reg_company_name, c.trading_name as reg_trading_name,
+              c.business_email, c.logo_url, c.status as company_status,
+              c.firs_enabled, c.generate_payment_link,
               c.display_bank_details_on_invoice, c.auto_submit_to_firs,
               c.tax_identification_number, c.rc_number, c.business_type,
               c.city, c.state, c.country
@@ -612,8 +646,13 @@ const getMe = async (req, res, next) => {
       [req.user.id],
     );
 
-    if (!rows.length) return error(res, "User not found", 404);
-    return success(res, rows[0]);
+    if (!row) return error(res, "User not found", 404);
+
+    return success(res, {
+      ...row,
+      company_name: row.reg_company_name || row.company_name,
+      trading_name: row.reg_trading_name || row.trading_name,
+    });
   } catch (err) {
     next(err);
   }
@@ -624,7 +663,7 @@ const getMe = async (req, res, next) => {
 // ─────────────────────────────────────────────────────────
 const updateMe = async (req, res, next) => {
   try {
-    const allowed = ["first_name", "last_name", "phone", "avatar_url"];
+    const allowed = ["first_name", "last_name", "phone"];
     const sets = allowed
       .filter((k) => req.body[k] !== undefined)
       .map((k) => `${k} = ?`)
@@ -635,29 +674,11 @@ const updateMe = async (req, res, next) => {
 
     if (!sets) return error(res, "No valid fields to update", 400);
 
-    // Keep full_name in sync
-    const first = req.body.first_name;
-    const last = req.body.last_name;
-    if (first || last) {
-      const [current] = await pool.query(
-        "SELECT first_name, last_name FROM users WHERE id = ?",
-        [req.user.id],
-      );
-      const newFirst = first || current[0].first_name;
-      const newLast = last || current[0].last_name;
-      values.push(`${newFirst} ${newLast}`); // for full_name
-      values.push(req.user.id);
-      await pool.query(
-        `UPDATE users SET ${sets}, full_name = ?, updated_at = NOW() WHERE id = ?`,
-        values,
-      );
-    } else {
-      values.push(req.user.id);
-      await pool.query(
-        `UPDATE users SET ${sets}, updated_at = NOW() WHERE id = ?`,
-        values,
-      );
-    }
+    values.push(req.user.id);
+    await pool.query(
+      `UPDATE users SET ${sets}, updated_at = NOW() WHERE id = ?`,
+      values,
+    );
 
     return success(res, {}, "Profile updated");
   } catch (err) {
@@ -676,11 +697,11 @@ const changePassword = async (req, res, next) => {
     if (new_password.length < 7)
       return error(res, "New password must be at least 7 characters", 400);
 
-    const [rows] = await pool.query(
+    const [[u]] = await pool.query(
       "SELECT password_hash FROM users WHERE id = ?",
       [req.user.id],
     );
-    const valid = await bcrypt.compare(current_password, rows[0].password_hash);
+    const valid = await bcrypt.compare(current_password, u.password_hash);
     if (!valid) return error(res, "Current password is incorrect", 400);
 
     const hash = await bcrypt.hash(new_password, 12);

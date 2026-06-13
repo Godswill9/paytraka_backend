@@ -274,6 +274,51 @@ const createInvoice = async (req, res, next) => {
   }
 };
 
+// POST /sales-invoices/:id/post
+const postInvoice = async (req, res, next) => {
+  try {
+    const [[invoice]] = await pool.query(
+      "SELECT status, invoice_type, related_invoice_id FROM sales_invoices WHERE id = ? AND company_id = ?",
+      [req.params.id, req.user.company_id],
+    );
+    if (!invoice) return error(res, "Invoice not found", 404);
+    if (invoice.status !== "draft")
+      return error(res, "Only draft invoices can be posted", 400);
+
+    if (
+      REFERENCING_TYPES.includes(invoice.invoice_type) &&
+      !invoice.related_invoice_id
+    ) {
+      return error(
+        res,
+        `${invoice.invoice_type} must reference an invoice before it can be posted`,
+        400,
+      );
+    }
+
+    await pool.query(
+      `UPDATE sales_invoices SET status = 'posted', updated_at = NOW() WHERE id = ? AND company_id = ?`,
+      [req.params.id, req.user.company_id],
+    );
+
+    await audit({
+      userId: req.user.id,
+      companyId: req.user.company_id,
+      action: AUDIT_ACTIONS.UPDATE,
+      entity: "sales_invoice",
+      entityId: req.params.id,
+      req,
+    });
+    return success(
+      res,
+      {},
+      "Invoice posted. It is now locked and ready to send.",
+    );
+  } catch (err) {
+    next(err);
+  }
+};
+
 // ─────────────────────────────────────────────────────────
 // GET /sales-invoices
 // ─────────────────────────────────────────────────────────
@@ -380,7 +425,6 @@ const getInvoice = async (req, res, next) => {
 // PATCH /sales-invoices/:id  (draft only)
 // ─────────────────────────────────────────────────────────
 
-//this would be used as post invoice
 const updateInvoice = async (req, res, next) => {
   try {
     const [existing] = await pool.query(
@@ -573,9 +617,9 @@ const sendInvoice = async (req, res, next) => {
 
     if (invoice.status === "cancelled")
       return error(res, "Cannot send a cancelled invoice", 400);
-    if (invoice.status !== "draft")
+    // to this:
+    if (!["draft", "posted"].includes(invoice.status))
       return error(res, "Invoice has already been sent", 400);
-
     if (
       REFERENCING_TYPES.includes(invoice.invoice_type) &&
       !invoice.related_invoice_id
@@ -620,11 +664,14 @@ const cancelInvoice = async (req, res, next) => {
       [req.params.id, req.user.company_id],
     );
     if (!rows.length) return error(res, "Invoice not found", 404);
-    if (rows[0].status === "paid")
-      return error(res, "Cannot cancel a paid invoice", 400);
-    if (rows[0].status === "cancelled")
-      return error(res, "Invoice is already cancelled", 400);
+    // if (rows[0].status === "paid")
+    //   return error(res, "Cannot cancel a paid invoice", 400);
+    // if (rows[0].status === "cancelled")
+    //   return error(res, "Invoice is already cancelled", 400);
 
+    if (!["draft", "posted", "sent"].includes(rows[0].status)) {
+      return error(res, "Invoice cannot be cancelled at this stage", 400);
+    }
     await pool.query(
       `UPDATE sales_invoices SET status = 'cancelled', updated_at = NOW() WHERE id = ? AND company_id = ?`,
       [req.params.id, req.user.company_id],
@@ -791,4 +838,5 @@ module.exports = {
   cancelInvoice,
   convertProformaToInvoice,
   getLineitems,
+  postInvoice,
 };

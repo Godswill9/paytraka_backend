@@ -11,6 +11,16 @@ const {
 const { audit } = require("../middlewares/audit.middleware");
 const { AUDIT_ACTIONS } = require("../config/constants");
 
+// ── Helper: resolve category_name from category_id ───────
+const resolveCategoryName = async (categoryId, companyId) => {
+  if (!categoryId) return null;
+  const [[cat]] = await pool.query(
+    "SELECT name FROM product_categories WHERE id = ? AND company_id = ?",
+    [categoryId, companyId],
+  );
+  return cat?.name || null;
+};
+
 // POST /products
 const createProduct = async (req, res, next) => {
   try {
@@ -18,13 +28,13 @@ const createProduct = async (req, res, next) => {
       name,
       sku,
       description,
-      product_type,
+      product_type = "product",
       unit_price,
       cost_price,
-      tax_rate,
+      tax_rate = 0,
       tax_categories,
       currency,
-      stock_quantity,
+      stock_quantity = 0,
       track_inventory = 0,
       status = "active",
       category_id,
@@ -33,25 +43,28 @@ const createProduct = async (req, res, next) => {
     if (!name) return error(res, "name is required", 400);
     if (!unit_price) return error(res, "unit_price is required", 400);
 
-    const id = uuidv4();
-    const public_id = uuidv4();
-
-    // Resolve category_name if category_id provided
-    let category_name = null;
-    if (category_id) {
-      const [cat] = await pool.query(
-        "SELECT name FROM product_categories WHERE id = ? AND company_id = ?",
-        [category_id, req.user.company_id],
-      );
-      if (cat.length) category_name = cat[0].name;
+    if (!["product", "service"].includes(product_type)) {
+      return error(res, "product_type must be 'product' or 'service'", 400);
     }
 
+    // Validate category belongs to this company and get its name
+    let category_name = null;
+    if (category_id) {
+      category_name = await resolveCategoryName(
+        category_id,
+        req.user.company_id,
+      );
+      if (!category_name) return error(res, "Category not found", 404);
+    }
+
+    const id = uuidv4();
+    const public_id = uuidv4();
     await pool.query(
       `INSERT INTO products (
         id, public_id, company_id, name, sku, description, product_type,
         unit_price, cost_price, tax_rate, tax_categories, currency,
         stock_quantity, track_inventory, status, category_id, category_name
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?,?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         public_id,
@@ -59,13 +72,13 @@ const createProduct = async (req, res, next) => {
         name,
         sku || null,
         description || null,
-        product_type || "product",
+        product_type,
         unit_price,
         cost_price || null,
-        tax_rate || 0,
+        tax_rate,
         tax_categories ? JSON.stringify(tax_categories) : null,
         currency || null,
-        stock_quantity || 0,
+        stock_quantity,
         track_inventory ? 1 : 0,
         status,
         category_id || null,
@@ -81,7 +94,7 @@ const createProduct = async (req, res, next) => {
       entityId: id,
       req,
     });
-    return created(res, { id, public_id }, "Product created");
+    return created(res, { id }, "Product created");
   } catch (err) {
     next(err);
   }
@@ -112,8 +125,7 @@ const getProducts = async (req, res, next) => {
       filterValues.push(req.query.category_id);
     }
 
-    const extraClause = filters.length ? filters.join(" AND ") : "";
-    const where = `WHERE p.company_id = ?${clause ? ` AND ${clause}` : ""}${extraClause ? ` AND ${extraClause}` : ""}`;
+    const where = `WHERE p.company_id = ?${clause ? ` AND ${clause}` : ""}${filters.length ? ` AND ${filters.join(" AND ")}` : ""}`;
     const params = [req.user.company_id, ...values, ...filterValues];
 
     const [[{ total }]] = await pool.query(
@@ -136,14 +148,14 @@ const getProducts = async (req, res, next) => {
 // GET /products/:id
 const getProduct = async (req, res, next) => {
   try {
-    const [rows] = await pool.query(
+    const [[row]] = await pool.query(
       `SELECT p.*, pc.name as category_name FROM products p
        LEFT JOIN product_categories pc ON pc.id = p.category_id
        WHERE p.id = ? AND p.company_id = ?`,
       [req.params.id, req.user.company_id],
     );
-    if (!rows.length) return error(res, "Product not found", 404);
-    return success(res, rows[0]);
+    if (!row) return error(res, "Product not found", 404);
+    return success(res, row);
   } catch (err) {
     next(err);
   }
@@ -172,36 +184,28 @@ const updateProduct = async (req, res, next) => {
     const values = [];
 
     for (const k of allowed) {
-      if (req.body[k] !== undefined) {
-        sets.push(`${k} = ?`);
-        if (k === "tax_categories") {
-          values.push(JSON.stringify(req.body[k]));
-        } else if (k === "track_inventory") {
-          values.push(req.body[k] ? 1 : 0);
-        } else {
-          values.push(req.body[k]);
-        }
-      }
+      if (req.body[k] === undefined) continue;
+      sets.push(`${k} = ?`);
+      if (k === "tax_categories") values.push(JSON.stringify(req.body[k]));
+      else if (k === "track_inventory") values.push(req.body[k] ? 1 : 0);
+      else values.push(req.body[k]);
     }
 
     if (!sets.length) return error(res, "No valid fields to update", 400);
 
-    // Update category_name if category_id is being changed
+    // Sync category_name when category_id changes
     if (req.body.category_id !== undefined) {
-      let category_name = null;
-      if (req.body.category_id) {
-        const [cat] = await pool.query(
-          "SELECT name FROM product_categories WHERE id = ? AND company_id = ?",
-          [req.body.category_id, req.user.company_id],
-        );
-        if (cat.length) category_name = cat[0].name;
-      }
+      const category_name = await resolveCategoryName(
+        req.body.category_id,
+        req.user.company_id,
+      );
+      if (req.body.category_id && !category_name)
+        return error(res, "Category not found", 404);
       sets.push("category_name = ?");
       values.push(category_name);
     }
 
     values.push(req.params.id, req.user.company_id);
-
     await pool.query(
       `UPDATE products SET ${sets.join(", ")}, updated_at = NOW() WHERE id = ? AND company_id = ?`,
       values,
@@ -243,6 +247,8 @@ const deleteProduct = async (req, res, next) => {
   }
 };
 
+// ── CATEGORIES ────────────────────────────────────────────
+
 // GET /product-categories
 const getCategories = async (req, res, next) => {
   try {
@@ -256,29 +262,30 @@ const getCategories = async (req, res, next) => {
   }
 };
 
+// GET /product-categories/:id
+const getCategory = async (req, res, next) => {
+  try {
+    const [[row]] = await pool.query(
+      "SELECT * FROM product_categories WHERE id = ? AND company_id = ?",
+      [req.params.id, req.user.company_id],
+    );
+    if (!row) return error(res, "Category not found", 404);
+    return success(res, row);
+  } catch (err) {
+    next(err);
+  }
+};
+
 // POST /product-categories
 const createCategory = async (req, res, next) => {
   try {
-    if (!req.body.name) return error(res, "name is required", 400);
+    const { name, description } = req.body;
+    if (!name) return error(res, "name is required", 400);
 
     const id = uuidv4();
-
-    // Get company name for denormalized field
-    const [companyRows] = await pool.query(
-      "SELECT name FROM companies WHERE id = ?",
-      [req.user.company_id],
-    );
-    const company_name = companyRows.length ? companyRows[0].name : null;
-
     await pool.query(
-      `INSERT INTO product_categories (id, company_id, company_name, name, description) VALUES (?, ?, ?, ?, ?)`,
-      [
-        id,
-        req.user.company_id,
-        company_name,
-        req.body.name,
-        req.body.description || null,
-      ],
+      `INSERT INTO product_categories (id, company_id, name, description) VALUES (?, ?, ?, ?)`,
+      [id, req.user.company_id, name, description || null],
     );
     return created(res, { id }, "Category created");
   } catch (err) {
@@ -304,7 +311,6 @@ const updateCategory = async (req, res, next) => {
     if (!sets.length) return error(res, "No valid fields to update", 400);
 
     values.push(req.params.id, req.user.company_id);
-
     await pool.query(
       `UPDATE product_categories SET ${sets.join(", ")}, updated_at = NOW() WHERE id = ? AND company_id = ?`,
       values,
@@ -328,6 +334,8 @@ const deleteCategory = async (req, res, next) => {
     next(err);
   }
 };
+
+// ── IMPORT / EXPORT ───────────────────────────────────────
 
 // GET /products/export
 const exportProducts = async (req, res, next) => {
@@ -353,7 +361,6 @@ const exportProducts = async (req, res, next) => {
        FROM products WHERE company_id = ?`,
       [req.user.company_id],
     );
-
     const buffer = generateExport(rows, "Products");
     res.setHeader(
       "Content-Disposition",
@@ -363,7 +370,7 @@ const exportProducts = async (req, res, next) => {
       "Content-Type",
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     );
-    await audit({
+    audit({
       userId: req.user.id,
       companyId: req.user.company_id,
       action: AUDIT_ACTIONS.EXPORT,
@@ -395,14 +402,18 @@ const importProducts = async (req, res, next) => {
         continue;
       }
       try {
+        // Resolve category_name if category_id provided in import
+        const category_name = row.category_id
+          ? await resolveCategoryName(row.category_id, req.user.company_id)
+          : row.category_name || null;
+
         await pool.query(
           `INSERT INTO products (
-            id, public_id, company_id, name, sku, description, product_type,
+            id, company_id, name, sku, description, product_type,
             unit_price, cost_price, tax_rate, currency,
             stock_quantity, track_inventory, status, category_id, category_name
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
-            uuidv4(),
             uuidv4(),
             req.user.company_id,
             row.name,
@@ -417,7 +428,7 @@ const importProducts = async (req, res, next) => {
             row.track_inventory ? 1 : 0,
             row.status || "active",
             row.category_id || null,
-            row.category_name || null,
+            category_name,
           ],
         );
         inserted++;
@@ -427,7 +438,7 @@ const importProducts = async (req, res, next) => {
       }
     }
 
-    await audit({
+    audit({
       userId: req.user.id,
       companyId: req.user.company_id,
       action: AUDIT_ACTIONS.IMPORT,
@@ -452,6 +463,7 @@ module.exports = {
   updateProduct,
   deleteProduct,
   getCategories,
+  getCategory,
   createCategory,
   updateCategory,
   deleteCategory,

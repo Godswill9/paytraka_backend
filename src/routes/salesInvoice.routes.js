@@ -10,7 +10,7 @@ router.get("/", ctrl.getInvoices);
 router.get("/:id", ctrl.getInvoice);
 router.patch("/:id", ctrl.updateInvoice);
 router.delete("/:id", ctrl.deleteInvoice);
-
+router.post("/:id/post", ctrl.postInvoice);
 router.post("/:id/send", ctrl.sendInvoice);
 router.post("/:id/cancel", ctrl.cancelInvoice);
 router.post("/:id/convert-to-invoice", ctrl.convertProformaToInvoice);

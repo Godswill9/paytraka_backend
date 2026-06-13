@@ -23,7 +23,7 @@ const generateReceiptNumber = async (companyId) => {
 // Check if invoice is fully paid (based on receipts) and update status accordingly
 const syncInvoicePaymentStatus = async (conn, invoiceId) => {
   const [[inv]] = await conn.query(
-    "SELECT total, status FROM sales_invoices WHERE id = ?",
+    "SELECT total_amount as total, status FROM sales_invoices WHERE id = ?",
     [invoiceId],
   );
   if (!inv) return;
@@ -302,7 +302,7 @@ const getReceipts = async (req, res, next) => {
     const [rows] = await pool.query(
       `SELECT r.*,
               si.invoice_number,
-              si.total as invoice_total,
+              si.total_amount as invoice_total,
               si.status as invoice_status
        FROM receipts r
        LEFT JOIN sales_invoices si ON si.id = r.sales_invoice_id

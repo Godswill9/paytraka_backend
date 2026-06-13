@@ -10,14 +10,14 @@
 # VARIABLES (Update these with your test values)
 # ───────────────────────────────────────────────────────
 
-@accessToken = your_access_token_here
-@refreshToken = your_refresh_token_here
-@companyId = your_company_id
-@userId = your_user_id
-@customerId = your_customer_id
+@accessToken = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJkZmM4ZDM5ZC1iY2M4LTQ5OGMtYTAxYS1hYmE3ZTc5NzllOTAiLCJjb21wYW55SWQiOiI3NjMxOWI2OS00YWQyLTQ3OWQtYmI0YS1hNjY5NDcyYmFhMTkiLCJpYXQiOjE3ODEzNjA4MjIsImV4cCI6MTc4MTUzMzYyMn0.pwa0WyG0koKU3YJGhYXa5OoHvg77B455cHrFSQXUDeg
+@refreshToken = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJkZmM4ZDM5ZC1iY2M4LTQ5OGMtYTAxYS1hYmE3ZTc5NzllOTAiLCJjb21wYW55SWQiOiI3NjMxOWI2OS00YWQyLTQ3OWQtYmI0YS1hNjY5NDcyYmFhMTkiLCJpYXQiOjE3ODEzNjA4MjIsImV4cCI6MTc4MTk2NTYyMn0.yPw2EkrKgAmiWkyq6FJyI-Ra93DUJLJcDKRnDo-xD84
+@companyId = 76319b69-4ad2-479d-bb4a-a669472baa19
+@userId = dfc8d39d-bcc8-498c-a01a-aba7e7979e90
+@customerId = e43af95b-064f-486d-97dd-7706426f685f
 @supplierId = your_supplier_id
-@productId = your_product_id
-@invoiceId = your_sales_invoice_id
+@productId = cb2eaaee-7e0d-4f34-a702-b42741262e44
+@invoiceId = afa7ba32-dcee-4e96-92ba-966ef2c9f05d
 @purchaseInvoiceId = your_purchase_invoice_id
 @receiptId = your_receipt_id
 
@@ -33,15 +33,18 @@ GET http://localhost:3000/health
 ###########################################################
 
 ### 2. Register New User
+### [AUTH] Register
 POST {{baseUrl}}/auth/register
-Content-Type: {{contentType}}
+Content-Type: application/json
 
 {
-  "first_name": "John",
-  "last_name": "Doe",
-  "email": "john.doe@example.com",
-  "password": "SecurePassword123",
-  "phone": "+234801234567"
+  "first_name": "God'swill",
+  "last_name": "Tester",
+  "email": "godswill@paytraka.test",
+  "password": "Test@1234",
+  "phone": "08012345678",
+  "company_name": "PayTraka Demo Co",
+  "trading_name": "PayTraka"
 }
 
 ### 3. Verify OTP
@@ -49,8 +52,8 @@ POST {{baseUrl}}/auth/verify-otp
 Content-Type: {{contentType}}
 
 {
-  "email": "john.doe@example.com",
-  "otp": "123456"
+  "user_id": "{{userId}}",
+  "otp": "794431"
 }
 
 ### 4. Resend OTP
@@ -58,7 +61,7 @@ POST {{baseUrl}}/auth/resend-otp
 Content-Type: {{contentType}}
 
 {
-  "email": "john.doe@example.com"
+  "user_id": "{{userId}}"
 }
 
 ### 5. Login
@@ -66,8 +69,8 @@ POST {{baseUrl}}/auth/login
 Content-Type: {{contentType}}
 
 {
-  "email": "john.doe@example.com",
-  "password": "SecurePassword123"
+  "email": "godswill@paytraka.test",
+  "password": "Test@1234"
 }
 
 ### 6. Refresh Token
@@ -176,7 +179,13 @@ Content-Type: {{contentType}}
   "state": "Lagos",
   "country": "Nigeria",
   "lga": "Ikoyi",
-  "postal_code": "10001"
+  "postal_code": "10001",
+   "nrs_businessid": "biz123",
+  "nrs_apikey": "key123",
+  "nrs_apisecret": "secret123",
+  "nrs_entityid": "entity123",
+  "nrs_publickey": "pubkey123",
+  "nrs_certificate": "cert_data"
 }
 
 ### 17. Get Company Mode
@@ -386,7 +395,8 @@ Content-Type: {{contentType}}
   "currency": "NGN",
   "stock_quantity": 50,
   "track_inventory": 1,
-  "status": "active"
+  "status": "active",
+  "category_id": "b8cfcea6-deac-4a63-a598-30ff2e156505"
 }
 
 ### 42. Get All Products
@@ -438,7 +448,7 @@ Content-Type: {{contentType}}
   "line_items": [
     {
       "product_id": "{{productId}}",
-      "description": "Laptop Pro",
+      "description": "Electrical Appliance",
       "quantity": 2,
       "unit_price": 150000,
       "tax_rate": 7.5
@@ -468,7 +478,14 @@ Content-Type: {{contentType}}
 DELETE {{baseUrl}}/sales-invoices/{{invoiceId}}
 Authorization: Bearer {{accessToken}}
 
-### 53. Send Sales Invoice
+
+### 53. Post Sales Invoice
+POST {{baseUrl}}/sales-invoices/{{invoiceId}}/post
+Authorization: Bearer {{accessToken}}
+
+
+
+## 53. Send Sales Invoice
 POST {{baseUrl}}/sales-invoices/{{invoiceId}}/send
 Authorization: Bearer {{accessToken}}
 Content-Type: {{contentType}}
@@ -604,7 +621,7 @@ Authorization: Bearer {{accessToken}}
 Content-Type: {{contentType}}
 
 {
-  "sales_invoice_id": "{{invoiceId}}"
+  "invoice_id": "{{invoiceId}}"
 }
 
 ### 72. Update Invoice Payment Status on FIRS
@@ -613,7 +630,7 @@ Authorization: Bearer {{accessToken}}
 Content-Type: {{contentType}}
 
 {
-  "sales_invoice_id": "{{invoiceId}}",
+  "invoice_id": "{{invoiceId}}",
   "status": "PAID"
 }
 
