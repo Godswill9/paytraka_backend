@@ -160,6 +160,8 @@ const updateCustomer = async (req, res, next) => {
       "country",
       "customer_documents",
       "status",
+      "lga",
+      "business_description",
     ];
 
     const sets = [];

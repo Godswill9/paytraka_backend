@@ -150,6 +150,48 @@ const toTimeStr = (d) => {
 // };
 
 const mapInvoiceToFirs = (invoice, company, lineitems, businessId) => {
+  const countryCodeMap = {
+    nigeria: "NG",
+    ghana: "GH",
+    kenya: "KE",
+    "south africa": "ZA",
+    uganda: "UG",
+    tanzania: "TZ",
+    cameroon: "CM",
+    senegal: "SN",
+    "ivory coast": "CI",
+    "côte d'ivoire": "CI",
+    ethiopia: "ET",
+    egypt: "EG",
+    morocco: "MA",
+    angola: "AO",
+    mozambique: "MZ",
+    zambia: "ZM",
+    zimbabwe: "ZW",
+    rwanda: "RW",
+    benin: "BJ",
+    togo: "TG",
+    mali: "ML",
+    niger: "NE",
+    chad: "TD",
+    sudan: "SD",
+    libya: "LY",
+    tunisia: "TN",
+    algeria: "DZ",
+    "united states": "US",
+    "united kingdom": "GB",
+    france: "FR",
+    germany: "DE",
+    china: "CN",
+    india: "IN",
+  };
+
+  const toCountryCode = (value) => {
+    if (!value) return "NG";
+    if (value.length === 2) return value.toUpperCase(); // already a code
+    return countryCodeMap[value.toLowerCase()] || value.toUpperCase();
+  };
+
   const taxRate = lineitems[0]?.tax_rate ? Number(lineitems[0].tax_rate) : 7.5;
 
   // Calculate from actual line items — don't trust invoice-level fields
@@ -175,7 +217,8 @@ const mapInvoiceToFirs = (invoice, company, lineitems, businessId) => {
     invoiceDueDate: toDateStr(invoice.due_date),
     invoiceIssueTime: toTimeStr(invoice.created_at),
     invoiceTypeCode: "389",
-    invoicePaymentStatus: invoice.status === "paid" ? "PAID" : "UNPAID",
+    invoicePaymentStatus: invoice.payment_status === "paid" ? "PAID" : "UNPAID",
+    // invoicePaymentStatus: invoice.status === "paid" ? "PAID" : "UNPAID",
     invoiceNote: invoice.note || "",
     invoiceTaxPointDate: toDateStr(invoice.issue_date),
     invoiceDocumentCurrencyCode: invoice.currency || "NGN",
@@ -191,7 +234,7 @@ const mapInvoiceToFirs = (invoice, company, lineitems, businessId) => {
     invoiceCustomerPartyName: invoice.customer_name || "",
     invoiceCustomerCityName: invoice.customer_city || "",
     invoiceCustomerPostalZone: invoice.customer_postal_zone || "",
-    invoiceCustomerCountry: invoice.customer_country || "NG",
+    invoiceCustomerCountry: toCountryCode(invoice.customer_country) || "NG",
     invoiceCustomerStreetName: invoice.customer_address || "",
     invoiceCustomerLga: invoice.customer_lga || "",
     invoiceCustomerState: invoice.customer_state || "",
@@ -208,7 +251,7 @@ const mapInvoiceToFirs = (invoice, company, lineitems, businessId) => {
     invoiceSupplierState: company.state || "",
     invoiceSupplierCityName: company.city || "",
     invoiceSupplierPostalZone: company.postal_code || "",
-    invoiceSupplierCountry: company.country || "NG",
+    invoiceSupplierCountry: toCountryCode(company.country) || "NG",
     invoiceSupplierStreetName: company.address || "",
 
     // ✅ Totals derived from actual line items
@@ -229,7 +272,7 @@ const mapInvoiceToFirs = (invoice, company, lineitems, businessId) => {
         }
       : {}),
 
-    invoiceLine: lineitems.map((item) => {
+    invoiceLine: lineitems.map((item, i) => {
       const qty = Number(item.quantity || 0);
       const price = Number(item.unit_price || 0);
       const discount = Number(item.discount_amount || 0);
@@ -251,7 +294,7 @@ const mapInvoiceToFirs = (invoice, company, lineitems, businessId) => {
         invoiceLineDiscountAmount: discount || 0,
         invoiceLineFeeRate: 0,
         invoiceLineFeeAmount: tax || 0,
-        invoiceLineHsnCode: "0000",
+        invoiceLineHsnCode: `${i + 1}`,
       };
     }),
 
@@ -325,6 +368,7 @@ const submitToFirs = async (req, res, next) => {
     const { businessId } = getFirsConfig(mode);
     const payload = mapInvoiceToFirs(invoice, company, lineitems, businessId);
     console.log(payload);
+
     const submissionId = uuidv4();
     const publicId = uuidv4();
     await pool.query(
@@ -347,29 +391,78 @@ const submitToFirs = async (req, res, next) => {
         payload,
       );
 
-      await pool.query(
-        `UPDATE firs_submissions SET status = 'submitted', irn = ?, response_payload = ?, submitted_at = NOW(), updated_at = NOW() WHERE id = ?`,
-        [invoice.invoice_number, JSON.stringify(response.data), submissionId],
-      );
+      const responseCode = response.data?.responseCode;
+      const responseMessage =
+        response.data?.responseMessage || "Unknown response from FIRS";
+      const irn = response.data?.invoiceIrn || null;
 
-      await audit({
-        userId: req.user.id,
-        companyId: req.user.company_id,
-        action: AUDIT_ACTIONS.SUBMIT_FIRS,
-        entity: "sales_invoice",
-        entityId: invoice_id,
-        req,
-      });
+      if (responseCode === "00") {
+        // Success — update firs_submissions
+        await pool.query(
+          `UPDATE firs_submissions 
+           SET status = 'submitted', irn = ?, response_payload = ?, submitted_at = NOW(), updated_at = NOW() 
+           WHERE id = ?`,
+          [irn, JSON.stringify(response.data), submissionId],
+        );
 
-      return success(
-        res,
-        {
-          submission_id: submissionId,
-          invoice_number: invoice.invoice_number,
-          response: response.data,
-        },
-        "Invoice submitted to FIRS successfully",
-      );
+        // Update sales_invoices with IRN, status and sent_at
+        await pool.query(
+          `UPDATE sales_invoices 
+           SET irn = ?, send_to_firs = 1, status = 'sent', sent_at = NOW(), updated_at = NOW() 
+           WHERE id = ?`,
+          [irn, invoice_id],
+        );
+
+        await audit({
+          userId: req.user.id,
+          companyId: req.user.company_id,
+          action: AUDIT_ACTIONS.SUBMIT_FIRS,
+          entity: "sales_invoice",
+          entityId: invoice_id,
+          req,
+        });
+
+        return success(
+          res,
+          {
+            submission_id: submissionId,
+            invoice_number: invoice.invoice_number,
+            irn,
+            response: response.data,
+          },
+          "Invoice submitted to FIRS successfully",
+        );
+      } else {
+        // FIRS returned a non-00 response code — treat as failure
+        await pool.query(
+          `UPDATE firs_submissions 
+     SET status = 'failed', response_payload = ?, updated_at = NOW() 
+     WHERE id = ?`,
+          [JSON.stringify(response.data), submissionId],
+        );
+
+        // Specific FIRS error code handling
+        let userMessage;
+        switch (responseCode) {
+          case "106":
+            if (
+              responseMessage?.includes("Only PAID invoices can be reported")
+            ) {
+              userMessage =
+                "Please mark this invoice as paid before submitting to FIRS, or verify the customer's TIN is valid.";
+            } else {
+              userMessage = `FIRS validation error: ${responseMessage}`;
+            }
+            break;
+          case "26":
+            userMessage = `This invoice number (${invoice.invoice_number}) has already been submitted to FIRS. Please check the submission status or use a different invoice number.`;
+            break;
+          default:
+            userMessage = `FIRS rejected the invoice: [${responseCode}] ${responseMessage}`;
+        }
+
+        return error(res, userMessage, 422);
+      }
     } catch (firsErr) {
       const responseData = firsErr.response?.data || { error: firsErr.message };
       await pool.query(

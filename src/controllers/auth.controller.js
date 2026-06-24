@@ -631,22 +631,56 @@ const resetPassword = async (req, res, next) => {
 const getMe = async (req, res, next) => {
   try {
     const [[row]] = await pool.query(
-      `SELECT u.id, u.public_id, u.first_name, u.last_name, u.email, u.phone,
-              u.role, u.status, u.company_id, u.company_name, u.trading_name,
-              u.email_verified_at, u.last_login_at,
-              c.company_name as reg_company_name, c.trading_name as reg_trading_name,
-              c.business_email, c.logo_url, c.status as company_status,
-              c.firs_enabled, c.generate_payment_link,
-              c.display_bank_details_on_invoice, c.auto_submit_to_firs,
-              c.tax_identification_number, c.rc_number, c.business_type,
-              c.city, c.state, c.country
+      `SELECT 
+          u.id,
+          u.public_id,
+          u.first_name,
+          u.last_name,
+          u.email,
+          u.phone,
+          u.role,
+          u.status,
+          u.company_id,
+          u.company_name,
+          u.trading_name,
+          u.email_verified_at,
+          u.last_login_at,
+
+          c.company_name AS reg_company_name,
+          c.trading_name AS reg_trading_name,
+          c.business_email,
+          c.business_phone,
+          c.logo_url,
+          c.status AS company_status,
+          c.firs_enabled,
+          c.generate_payment_link,
+          c.display_bank_details_on_invoice,
+          c.auto_submit_to_firs,
+          c.tax_identification_number,
+          c.rc_number,
+          c.business_type,
+          c.city,
+          c.state,
+          c.country,
+          c.lga,
+
+          c.nrs_businessid_test,
+          c.nrs_businessid_live,
+          c.nrs_apikey,
+          c.nrs_apisecret,
+          c.nrs_entityid,
+          c.nrs_publickey,
+          c.nrs_certificate
+
        FROM users u
        LEFT JOIN companies c ON c.id = u.company_id
        WHERE u.id = ?`,
       [req.user.id],
     );
 
-    if (!row) return error(res, "User not found", 404);
+    if (!row) {
+      return error(res, "User not found", 404);
+    }
 
     return success(res, {
       ...row,
@@ -657,7 +691,6 @@ const getMe = async (req, res, next) => {
     next(err);
   }
 };
-
 // ─────────────────────────────────────────────────────────
 // PATCH /auth/me
 // ─────────────────────────────────────────────────────────

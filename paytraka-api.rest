@@ -3,7 +3,8 @@
 # For use with VS Code REST Client extension
 ###########################################################
 
-@baseUrl = http://localhost:3000/api
+@baseUrl = https://paytraka-api.domain-plusltd.com/api
+# @baseUrl = http://localhost:3000/api
 @contentType = application/json
 
 # ───────────────────────────────────────────────────────

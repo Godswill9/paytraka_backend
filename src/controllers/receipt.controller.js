@@ -33,23 +33,57 @@ const syncInvoicePaymentStatus = async (conn, invoiceId) => {
     [invoiceId],
   );
 
+  const balanceDue = Math.max(0, inv.total - paid);
+
   if (paid >= inv.total && inv.status !== "paid") {
     await conn.query(
-      `UPDATE sales_invoices SET status = 'paid', paid_at = NOW(), updated_at = NOW() WHERE id = ?`,
-      [invoiceId],
+      `UPDATE sales_invoices
+       SET payment_status = 'paid',
+           amount_paid = ?, balance_due = 0,
+           paid_at = NOW(), updated_at = NOW()
+       WHERE id = ?`,
+      [paid, invoiceId],
     );
-    return { fully_paid: true, amount_paid: paid, total: inv.total };
+    return {
+      fully_paid: true,
+      amount_paid: paid,
+      balance_due: 0,
+      total: inv.total,
+    };
   }
 
-  if (paid > 0 && paid < inv.total && inv.status === "draft") {
-    // Partial payment — move from draft to sent so it shows as outstanding
+  if (paid > 0 && paid < inv.total) {
     await conn.query(
-      `UPDATE sales_invoices SET status = 'sent', updated_at = NOW() WHERE id = ? AND status = 'draft'`,
-      [invoiceId],
+      `UPDATE sales_invoices
+       SET payment_status = 'partially_paid',
+           amount_paid = ?, balance_due = ?,
+           paid_at = NULL, updated_at = NOW()
+       WHERE id = ?`,
+      [paid, balanceDue, invoiceId],
     );
+    return {
+      fully_paid: false,
+      amount_paid: paid,
+      balance_due: balanceDue,
+      total: inv.total,
+    };
   }
 
-  return { fully_paid: false, amount_paid: paid, total: inv.total };
+  // paid = 0 (e.g. receipt deleted/reversed in future)
+  await conn.query(
+    `UPDATE sales_invoices
+     SET payment_status = 'unpaid',
+         amount_paid = 0, balance_due = ?,
+         paid_at = NULL, updated_at = NOW()
+     WHERE id = ?`,
+    [inv.total, invoiceId],
+  );
+  return {
+    fully_paid: false,
+    amount_paid: 0,
+    balance_due: inv.total,
+    total: inv.total,
+  };
 };
 
 // Fetch company snapshot fields used to denormalize onto receipts
@@ -98,6 +132,9 @@ const createReceipt = async (req, res, next) => {
     if (!invoices.length) return error(res, "Invoice not found", 404);
 
     const invoice = invoices[0];
+    if (invoice.status === "draft") {
+      return error(res, "Only posted invoices can have receipts issued", 400);
+    }
     if (invoice.status === "cancelled") {
       return error(res, "Cannot issue receipt for a cancelled invoice", 400);
     }

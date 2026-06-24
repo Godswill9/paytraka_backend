@@ -1,6 +1,185 @@
 const { pool } = require("../config/db");
 const { success, error } = require("../utils/response");
 const { uploadToCloudflare } = require("../config/cloudflare");
+const axios = require("axios");
+
+const REDTECH_ENVIRONMENTS = {
+  test: {
+    baseUrlEnv: "FIRS_BASE_URL_TEST",
+    firsBusinessIdField: "nrs_businessid_test",
+    redtechBusinessIdField: "redtech_businessid_test",
+    stage: "dev",
+  },
+  live: {
+    baseUrlEnv: "FIRS_BASE_URL_LIVE",
+    firsBusinessIdField: "nrs_businessid_live",
+    redtechBusinessIdField: "redtech_businessid_live",
+    stage: "prod",
+  },
+};
+
+const getRedtechBusinessId = (responseData) => {
+  if (typeof responseData === "string") {
+    const value = responseData.trim();
+    if (!value) return null;
+
+    try {
+      return getRedtechBusinessId(JSON.parse(value));
+    } catch {
+      return value;
+    }
+  }
+
+  const containers = [
+    responseData,
+    responseData?.data,
+    responseData?.result,
+    responseData?.data?.data,
+    responseData?.data?.result,
+  ];
+
+  for (const container of containers) {
+    if (!container || typeof container !== "object") continue;
+
+    const businessId =
+      container.businessId ??
+      container.businessID ??
+      container.business_id ??
+      container.id;
+
+    if (typeof businessId === "string" && businessId.trim()) {
+      return businessId.trim();
+    }
+  }
+
+  return null;
+};
+
+const requestRedtechBusinessId = async (company, environment) => {
+  const config = REDTECH_ENVIRONMENTS[environment];
+  const baseURL = process.env[config.baseUrlEnv]?.replace(/\/+$/, "");
+
+  if (!baseURL) {
+    throw new Error(`${config.baseUrlEnv} is not configured`);
+  }
+
+  const payload = {
+    businessAddress: company.address,
+    businessAddressLg: company.lga,
+    businessAddressStreetName: company.address,
+    businessCity: company.city,
+    businessCountry: company.country,
+    businessFirsId: company[config.firsBusinessIdField],
+    businessPostalCode: company.postal_code,
+    businessState: company.state,
+    contactEmail: company.business_email,
+    entityFirsId: company.nrs_entityid,
+    firsApiKey: company.nrs_apikey,
+    firsApiSecret: company.nrs_apisecret,
+  };
+
+  const response = await axios.post(
+    `${baseURL}/external/request-business-key`,
+    payload,
+    {
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      params: { stage: config.stage },
+      timeout: 30000,
+    },
+  );
+
+  const businessId = getRedtechBusinessId(response.data);
+  if (!businessId) {
+    throw new Error("Redtech response did not contain a business ID");
+  }
+
+  return businessId;
+};
+
+const generateAndSaveRedtechBusinessIds = async (companyId) => {
+  const [rows] = await pool.query(
+    `SELECT id, business_email, address, city, state, country, lga, postal_code,
+            nrs_businessid_test, nrs_businessid_live, nrs_apikey,
+            nrs_apisecret, nrs_entityid, redtech_businessid_test,
+            redtech_businessid_live
+     FROM companies
+     WHERE id = ?`,
+    [companyId],
+  );
+
+  if (!rows.length) return;
+
+  const company = rows[0];
+  const commonRequiredValues = [
+    company.business_email,
+    company.address,
+    company.city,
+    company.state,
+    company.country,
+    company.lga,
+    company.postal_code,
+    company.nrs_apikey,
+    company.nrs_apisecret,
+    company.nrs_entityid,
+  ];
+
+  if (
+    commonRequiredValues.some(
+      (value) => value === undefined || value === null || value === "",
+    )
+  ) {
+    return;
+  }
+
+  const environmentsToRegister = Object.keys(REDTECH_ENVIRONMENTS).filter(
+    (environment) => {
+      const config = REDTECH_ENVIRONMENTS[environment];
+      return (
+        company[config.firsBusinessIdField] &&
+        !company[config.redtechBusinessIdField]
+      );
+    },
+  );
+
+  if (!environmentsToRegister.length) return;
+
+  const registrationResults = await Promise.allSettled(
+    environmentsToRegister.map(async (environment) => ({
+      environment,
+      businessId: await requestRedtechBusinessId(company, environment),
+    })),
+  );
+
+  const generatedIds = {};
+  registrationResults.forEach((result) => {
+    if (result.status !== "fulfilled") {
+      console.error(
+        "Redtech business ID generation failed:",
+        result.reason?.response?.data ||
+          result.reason?.message ||
+          result.reason,
+      );
+      return;
+    }
+
+    const config = REDTECH_ENVIRONMENTS[result.value.environment];
+    generatedIds[config.redtechBusinessIdField] = result.value.businessId;
+  });
+
+  if (!Object.keys(generatedIds).length) return;
+
+  const sets = Object.keys(generatedIds)
+    .map((column) => `${column} = ?`)
+    .join(", ");
+
+  await pool.query(
+    `UPDATE companies SET ${sets}, updated_at = NOW() WHERE id = ?`,
+    [...Object.values(generatedIds), companyId],
+  );
+};
 
 // ─────────────────────────────────────────────────────────
 // GET /companies/:id
@@ -60,6 +239,15 @@ const updateCompany = async (req, res, next) => {
       "website",
       "accent_colour",
       "invoice_template",
+      "business_description",
+      "industry",
+      "nrs_businessid_test",
+      "nrs_businessid_live",
+      "nrs_apikey",
+      "nrs_apisecret",
+      "nrs_entityid",
+      "nrs_publickey",
+      "nrs_certificate",
     ];
 
     const fields = {};
@@ -81,6 +269,8 @@ const updateCompany = async (req, res, next) => {
       values,
     );
 
+    await generateAndSaveRedtechBusinessIds(req.user.company_id);
+
     return success(res, {}, "Company updated");
   } catch (err) {
     next(err);
@@ -92,6 +282,9 @@ const updateCompany = async (req, res, next) => {
 // KYC — full business verification info
 // Called after OTP verification when user fills in company details
 // ─────────────────────────────────────────────────────────
+const toNull = (val) =>
+  val === "" || val === undefined || val === null ? null : val;
+
 const submitKyc = async (req, res, next) => {
   try {
     const {
@@ -115,12 +308,17 @@ const submitKyc = async (req, res, next) => {
       account_name,
       payment_method,
 
-      nrs_businessid,
+      nrs_businessid_test,
+      nrs_businessid_live,
       nrs_apikey,
       nrs_apisecret,
       nrs_entityid,
       nrs_publickey,
       nrs_certificate,
+      business_description,
+      company_size,
+      annual_turnover,
+      industry,
     } = req.body;
 
     if (
@@ -139,6 +337,16 @@ const submitKyc = async (req, res, next) => {
       );
     }
 
+    const firsEnabled = !!(
+      nrs_businessid_test ||
+      nrs_businessid_live ||
+      nrs_apikey ||
+      nrs_apisecret ||
+      nrs_entityid ||
+      nrs_publickey ||
+      nrs_certificate
+    );
+
     // Upload logo if provided
     let logo_url;
     if (req.file) {
@@ -152,31 +360,40 @@ const submitKyc = async (req, res, next) => {
 
     const fields = {
       company_name,
-      trading_name,
+      trading_name: toNull(trading_name),
       business_email,
       business_phone,
-      tax_identification_number,
-      vat_number,
+      tax_identification_number: toNull(tax_identification_number),
+      vat_number: toNull(vat_number),
       rc_number,
       business_type,
       address,
       city,
       state,
       country,
-      lga,
-      postal_code,
-      website,
-      bank_name,
-      account_number,
-      account_name,
-      payment_method,
-      nrs_businessid,
-      nrs_apikey,
-      nrs_apisecret,
-      nrs_entityid,
-      nrs_publickey,
-      nrs_certificate,
-      status: "active", // activate company on KYC completion
+      lga: toNull(lga),
+      postal_code: toNull(postal_code),
+      website: toNull(website),
+      bank_name: toNull(bank_name),
+      account_number: toNull(account_number),
+      account_name: toNull(account_name),
+      payment_method: toNull(payment_method),
+
+      nrs_businessid_test: toNull(nrs_businessid_test),
+      nrs_businessid_live: toNull(nrs_businessid_live),
+      nrs_apikey: toNull(nrs_apikey),
+      nrs_apisecret: toNull(nrs_apisecret),
+      nrs_entityid: toNull(nrs_entityid),
+      nrs_publickey: toNull(nrs_publickey),
+      nrs_certificate: toNull(nrs_certificate),
+
+      firs_enabled: firsEnabled ? 1 : 0,
+
+      status: "active",
+      business_description: toNull(business_description),
+      company_size: toNull(company_size),
+      annual_turnover: toNull(annual_turnover),
+      industry: toNull(industry),
     };
 
     if (logo_url) fields.logo_url = logo_url;
@@ -195,6 +412,8 @@ const submitKyc = async (req, res, next) => {
       `UPDATE companies SET ${sets}, updated_at = NOW() WHERE id = ?`,
       values,
     );
+
+    await generateAndSaveRedtechBusinessIds(req.user.company_id);
 
     return success(
       res,
@@ -217,6 +436,7 @@ const updateFirsSettings = async (req, res, next) => {
       "generate_payment_link",
       "display_bank_details_on_invoice",
       "auto_submit_to_firs",
+      "mode",
     ];
 
     const fields = {};
@@ -250,7 +470,8 @@ const updateFirsSettings = async (req, res, next) => {
 const updateNrsCredentials = async (req, res, next) => {
   try {
     const {
-      nrs_businessid,
+      nrs_businessid_test,
+      nrs_businessid_live,
       nrs_apikey,
       nrs_apisecret,
       nrs_entityid,
@@ -259,7 +480,8 @@ const updateNrsCredentials = async (req, res, next) => {
     } = req.body;
 
     const fields = {
-      nrs_businessid,
+      nrs_businessid_test,
+      nrs_businessid_live,
       nrs_apikey,
       nrs_apisecret,
       nrs_entityid,

@@ -23,6 +23,26 @@ const receiptRoutes = require("./routes/receipt.routes");
 
 const app = express();
 
+// The production app runs behind the hosting provider's reverse proxy.
+// Trust one proxy hop by default in production so req.ip and rate limiting
+// use the real client address from X-Forwarded-For.
+const trustProxy = process.env.TRUST_PROXY;
+if (trustProxy !== undefined) {
+  const numericTrustProxy = Number(trustProxy);
+  const parsedTrustProxy =
+    trustProxy === "true"
+      ? true
+      : trustProxy === "false"
+        ? false
+        : Number.isNaN(numericTrustProxy)
+          ? trustProxy
+          : numericTrustProxy;
+
+  app.set("trust proxy", parsedTrustProxy);
+} else {
+  app.set("trust proxy", 1);
+}
+
 // ── Security ──────────────────────────────────────────────
 app.use(helmet());
 app.use(
@@ -32,27 +52,14 @@ app.use(
   }),
 );
 
-// ── Rate limiting ─────────────────────────────────────────
-app.use(
-  "/api/auth",
-  rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 min
-    max: 20,
-    message: {
-      success: false,
-      message: "Too many requests, please try again later.",
-    },
-  }),
-);
-
-app.use(
-  "/api",
-  rateLimit({
-    windowMs: 60 * 1000, // 1 min
-    max: 200,
-    message: { success: false, message: "Rate limit exceeded." },
-  }),
-);
+// app.use(
+//   "/api",
+//   rateLimit({
+//     windowMs: 60 * 1000, // 1 min
+//     max: 200,
+//     message: { success: false, message: "Rate limit exceeded." },
+//   }),
+// );
 
 // ── Paystack webhook needs raw body ───────────────────────
 app.use(
@@ -89,7 +96,6 @@ app.use(`${API}/products`, productRoutes);
 app.use(`${API}/sales-invoices`, salesInvoiceRoutes);
 app.use(`${API}/purchase-invoices`, purchaseInvoiceRoutes);
 app.use(`${API}/firs`, firsRoutes);
-app.use(`${API}/firs`, firsRoutes);
 app.use(`${API}/payments`, subscriptionRoutes);
 app.use(`${API}/receipts`, receiptRoutes);
 
@@ -101,14 +107,26 @@ app.use(errorHandler);
 const PORT = process.env.PORT || 3000;
 
 const start = async () => {
+  if (app.locals.server?.listening) {
+    return app.locals.server;
+  }
+
   await testConnection();
-  app.listen(PORT, () => {
+  app.locals.server = app.listen(PORT, () => {
     console.log(
       `🚀 PayTraka API running on port ${PORT} [${process.env.NODE_ENV || "development"}]`,
     );
   });
+
+  return app.locals.server;
 };
 
-start();
+if (require.main === module) {
+  start().catch((err) => {
+    console.error("❌ Failed to start PayTraka API:", err);
+    process.exit(1);
+  });
+}
 
 module.exports = app;
+module.exports.start = start;
