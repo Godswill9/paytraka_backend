@@ -238,6 +238,7 @@ const updateCompany = async (req, res, next) => {
       "postal_code",
       "website",
       "accent_colour",
+      "tax_identification_number",
       "invoice_template",
       "business_description",
       "industry",
@@ -323,7 +324,6 @@ const submitKyc = async (req, res, next) => {
 
     if (
       !company_name ||
-      !rc_number ||
       !business_type ||
       !address ||
       !city ||
@@ -332,7 +332,7 @@ const submitKyc = async (req, res, next) => {
     ) {
       return error(
         res,
-        "company_name, rc_number, business_type, address, city, state and country are required for KYC",
+        "company_name, business_type, address, city, state and country are required for KYC",
         400,
       );
     }
@@ -365,7 +365,7 @@ const submitKyc = async (req, res, next) => {
       business_phone,
       tax_identification_number: toNull(tax_identification_number),
       vat_number: toNull(vat_number),
-      rc_number,
+      rc_number: toNull(rc_number),
       business_type,
       address,
       city,

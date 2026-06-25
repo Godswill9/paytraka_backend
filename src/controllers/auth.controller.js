@@ -663,6 +663,8 @@ const getMe = async (req, res, next) => {
           c.state,
           c.country,
           c.lga,
+          c.business_description,
+          c.postal_code,
 
           c.nrs_businessid_test,
           c.nrs_businessid_live,
